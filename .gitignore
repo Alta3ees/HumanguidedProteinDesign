@@ -41,17 +41,12 @@ Thumbs.db
 # =========================
 data/raw/*
 data/processed/*
+data/results/*
 
 # Keep directory placeholders
 !data/raw/.gitkeep
 !data/processed/.gitkeep
-
-# =========================
-# Computational outputs
-# =========================
-results/*
-!results/README.md
-!results/.gitkeep
+!data/results/mutation_scans/.gitkeep
 
 # Rosetta / PyRosetta outputs
 *.pdb
