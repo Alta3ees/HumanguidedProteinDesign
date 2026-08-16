@@ -7,21 +7,36 @@ from human_protein_design.scoring import (
     initialize_pyrosetta,
 )
 
+from human_protein_design.analysis import (
+    MutationAnalysis,
+)
+
 from human_protein_design.session import (
     DesignSession,
 )
+from human_protein_design.context import (
+    MutationContext,
+)
 
+from human_protein_design.interpretation import (
+    interpret_energy_changes,
+)
 
 PDB_PATH = "data/raw/1PGA.pdb"
 OUTPUT_DIR = Path(
     "data/results/human_guided_sessions"
 )
 
-def print_result(result) -> None:
+
+def print_result(
+    result,
+    analysis: MutationAnalysis,
+    context: MutationContext,
+) -> None:
     """Print mutation feedback."""
 
     print("\nMutation result")
-    print("-" * 40)
+    print("-" * 50)
 
     print(
         f"Mutation:       "
@@ -30,32 +45,112 @@ def print_result(result) -> None:
 
     print(
         f"Previous score: "
-        f"{result.previous_score:.3f}"
+        f"{analysis.wt_total_score:.3f}"
     )
 
     print(
         f"Mutant score:   "
-        f"{result.mutant_score:.3f}"
+        f"{analysis.mutant_total_score:.3f}"
     )
 
     print(
         f"ΔScore:         "
-        f"{result.delta_score:+.3f} REU"
+        f"{analysis.delta_total_score:+.3f} REU"
     )
 
-    print("\nEnergy terms")
-    print("-" * 40)
+    print("\nEnergy changes")
+    print("-" * 50)
 
-    for term, value in result.scores.items():
+    print(
+        f"{'Term':<20}"
+        f"{'Previous':>10}"
+        f"{'Mutant':>10}"
+        f"{'Δ':>10}"
+    )
 
+    print("-" * 50)
+
+    for term, delta in analysis.delta_terms.items():
         if term == "total_score":
-            continue
+         continue
+
+        previous = analysis.wt_terms[term]
+        mutant = analysis.mutant_terms[term]
 
         print(
             f"{term:<20}"
-            f"{value:>10.3f}"
+            f"{previous:>10.3f}"
+            f"{mutant:>10.3f}"
+            f"{delta:>+10.3f}"
         )
 
+    if analysis.improved_terms:
+        
+
+        print("\nImproved terms")
+
+        for term in analysis.improved_terms:
+            if term == "total_score":
+                continue
+            print(
+                f"  ↓ {term:<18}"
+                f"{analysis.delta_terms[term]:+.3f}"
+            )
+
+        print("\nNearby residues")
+        print("-" * 50)
+
+        for residue in context.nearby_residues:
+            print(
+                f"{residue.amino_acid}"
+                f"{residue.position:<6}"
+                f"{residue.distance:>8.2f} Å"
+            )
+
+    if analysis.worsened_terms:
+        
+        print("\nWorsened terms")
+
+        for term in analysis.worsened_terms:
+            if term == "total_score":
+                continue
+
+            print(
+                f"  ↑ {term:<18}"
+                f"{analysis.delta_terms[term]:+.3f}"
+            )
+        print("\nNearby residues")
+        print("-" * 50)
+
+        for residue in context.nearby_residues:
+            print(
+                f"{residue.amino_acid}"
+                f"{residue.position:<6}"
+                f"{residue.distance:>8.2f} Å"
+            )
+
+    interpretations = interpret_energy_changes(
+      analysis
+    )
+
+    if interpretations:
+    
+        print("\nInterpretation")
+        print("-" * 50)
+    
+        for item in interpretations:
+        
+            symbol = (
+                "↓"
+                if item.direction == "improved"
+                else "↑"
+            )
+    
+            print(
+                f"{symbol} {item.term:<16}"
+                f"{item.delta:+8.3f}  "
+                f"{item.message}"
+            )
 
 def main():
 
@@ -75,7 +170,7 @@ def main():
     )
 
     print("\nHuman-Guided Protein Design")
-    print("=" * 40)
+    print("=" * 50)
 
     while True:
 
@@ -126,10 +221,10 @@ def main():
 
         try:
 
-            mutant_pose, result = (
+            mutant_pose, result, analysis, context = (
                 session.evaluate_mutation(
                     position,
-                    mutant_aa,
+                        mutant_aa,
                 )
             )
 
@@ -138,7 +233,13 @@ def main():
             print(error)
             continue
 
-        print_result(result)
+        
+
+        print_result(
+            result,
+            analysis,
+            context,
+        )
 
         decision = input(
             "\nAccept mutation? [y/n]: "
@@ -182,7 +283,7 @@ def main():
         print(
             "\nNo mutations were accepted."
         )
-    
+
     OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True,

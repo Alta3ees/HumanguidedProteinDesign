@@ -18,9 +18,12 @@ SCORE_TERMS = [
 
 
 def initialize_pyrosetta() -> None:
-    """Initialize PyRosetta."""
-    pyrosetta.init("-mute all")
-
+    """Initialize PyRosetta with reproducible sampling."""
+    pyrosetta.init(
+        "-mute all "
+        "-run:constant_seed "
+        "-run:jran 1111111"
+    )
 
 def get_standard_score_function():
     """Return Rosetta's standard full-atom score function."""
