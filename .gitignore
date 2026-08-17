@@ -36,12 +36,56 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# =========================
-# Project data
-# =========================
-data/raw/*
-data/processed/*
-data/results/*
+# ============================================================
+# Generated scientific data
+# ============================================================
+
+# Mutation scan outputs
+data/results/mutation_scans/
+
+# Legacy human-guided session outputs
+data/results/human_guided_sessions/
+
+# v0.3 persistent local design projects
+#
+# These may contain:
+# - generated PDB structures
+# - design_archive.json
+# - experimental evidence
+# - NMR/SPR/SEC/CD data
+# - literature files
+# - notes
+# - session outputs
+# - Obsidian exports
+# - PROJECT_SUMMARY.md
+data/projects/
+
+# Temporary archive-development output
+data/results/test_design_archive.json
+
+# ============================================================
+# Scientific / experimental files that should not be
+# accidentally committed
+# ============================================================
+
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.ucsf
+
+# Images generated/imported as evidence
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
 
 # Keep directory placeholders
 !data/raw/.gitkeep
