@@ -12,12 +12,19 @@ from human_protein_design.analysis import (
     MutationAnalysis,
     analyze_mutation,
 )
-from human_protein_design.mutation import mutate_pose
-from human_protein_design.scan import prepare_pose
+from human_protein_design.archive import (
+    Decision,
+    Design,
+    DesignArchive,
+    EvidenceEntry,
+)
 from human_protein_design.context import (
     MutationContext,
     get_mutation_context,
 )
+from human_protein_design.mutation import mutate_pose
+from human_protein_design.scan import prepare_pose
+
 
 @dataclass
 class MutationResult:
@@ -48,16 +55,99 @@ class DesignSession:
 
     score_function: object
 
+    archive: DesignArchive
+
     radius: float = 8.0
+
+    output_dir: str | Path | None = None
+
+    archive_path: str | Path | None = None
+
+    structures_dir: str | Path | None = None
 
     history: list[MutationResult] = field(
         default_factory=list
     )
 
+    current_design_id: str | None = None
+
+    pending_design_id: str | None = None
+
+    pending_evidence_id: str | None = None
+
+
+
+
+    def __post_init__(self) -> None:
+        """Initialize session storage and resolve current design."""
+
+        if self.output_dir is not None:
+            self.output_dir = Path(
+                self.output_dir
+            )
+
+            self.output_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+        # Existing design selected explicitly.
+        if self.current_design_id is not None:
+            if (
+                self.current_design_id
+                not in self.archive.designs
+            ):
+                raise ValueError(
+                    "Unknown current design: "
+                    f"{self.current_design_id}"
+                )
+
+            return
+
+        # Brand-new project: create root.
+        if not self.archive.designs:
+
+            root_design = Design(
+                sequence=self.pose.sequence(),
+                parent_design_id=None,
+                status="active",
+                name="WT",
+                metadata={
+                    "role": "project_root",
+                },
+            )
+
+            self._save_design_structure(
+                root_design,
+                self.pose,
+                label="root",
+            )
+
+            self.archive.add_design(
+                root_design
+            )
+
+            self.current_design_id = (
+                root_design.id
+            )
+
+            self._autosave_archive()
+
+            return
+
+        raise ValueError(
+            "Archive already contains designs. "
+            "Provide current_design_id when starting "
+            "a new session."
+        )
+
     def evaluate_mutation(
         self,
         position: int,
         mutant_aa: str,
+        hypothesis: str = "",
+        objective: str = "",
+        design_name: str | None = None,
     ) -> tuple[
         Pose,
         MutationResult,
@@ -69,7 +159,18 @@ class DesignSession:
 
         Both the reference and mutant structures undergo
         the same local preparation protocol before scoring.
+
+        The proposed sequence, relaxed structure, and Rosetta
+        evaluation are recorded in the scientific provenance
+        archive before the human decision is made.
         """
+
+        if self.pending_design_id is not None:
+            raise RuntimeError(
+                "A mutation is already awaiting a decision. "
+                "Accept or reject it before proposing "
+                "another mutation."
+            )
 
         wt_aa = self.pose.residue(
             position
@@ -82,12 +183,14 @@ class DesignSession:
                 f"Residue {position} is already {wt_aa}. "
                 "Choose a different amino acid."
             )
+
         context = get_mutation_context(
             pose=self.pose,
             position=position,
             mutant_aa=mutant_aa,
             radius=self.radius,
         )
+
         # --------------------------------
         # Prepare reference structure
         # --------------------------------
@@ -127,25 +230,94 @@ class DesignSession:
         )
 
         result = MutationResult(
-            mutation=(
-                f"{wt_aa}{position}{mutant_aa}"
-            ),
+            mutation=f"{wt_aa}{position}{mutant_aa}",
             position=position,
             wt_aa=wt_aa,
             mutant_aa=mutant_aa,
-            previous_score=(
-                analysis.wt_total_score
-            ),
-            mutant_score=(
-                analysis.mutant_total_score
-            ),
-            delta_score=(
-                analysis.delta_total_score
-            ),
-            scores=(
-                analysis.mutant_terms
-            ),
+            previous_score=analysis.wt_total_score,
+            mutant_score=analysis.mutant_total_score,
+            delta_score=analysis.delta_total_score,
+            scores=analysis.mutant_terms,
         )
+
+        # --------------------------------
+        # Record candidate design
+        # --------------------------------
+
+        candidate_design = Design(
+            sequence=mutant_pose.sequence(),
+            parent_design_id=self.current_design_id,
+            status="active",
+            name=design_name,
+            metadata={
+                "mutation": result.mutation,
+                "position": position,
+                "wt_aa": wt_aa,
+                "mutant_aa": mutant_aa,
+                "hypothesis": hypothesis,
+                "objective": objective,
+            },
+        )
+
+        # Save the evaluated structure even if it is
+        # rejected later.
+        self._save_design_structure(
+            candidate_design,
+            mutant_pose,
+        )
+
+        self.archive.add_design(
+            candidate_design
+        )
+
+        # --------------------------------
+        # Record Rosetta evidence
+        # --------------------------------
+
+        evidence = EvidenceEntry(
+            source_type="computational",
+            source_name="PyRosetta",
+            summary=(
+                f"Rosetta evaluation of "
+                f"{result.mutation}."
+            ),
+            design_id=candidate_design.id,
+            data={
+                "mutation": result.mutation,
+                "position": position,
+                "wt_aa": wt_aa,
+                "mutant_aa": mutant_aa,
+                "previous_score": result.previous_score,
+                "mutant_score": result.mutant_score,
+                "delta_score": result.delta_score,
+                "score_terms": result.scores,
+                "preparation": {
+                    "radius_angstrom": self.radius,
+                },
+            },
+        )
+
+        self.archive.add_evidence(
+            evidence
+        )
+
+        # --------------------------------
+        # Mark candidate as awaiting decision
+        # --------------------------------
+
+        self.pending_design_id = (
+            candidate_design.id
+        )
+
+        self.pending_evidence_id = (
+            evidence.id
+        )
+
+        # --------------------------------
+        # Persist immediately
+        # --------------------------------
+
+        self._autosave_archive()
 
         return (
             mutant_pose,
@@ -158,20 +330,202 @@ class DesignSession:
         self,
         mutant_pose: Pose,
         result: MutationResult,
+        rationale: str = "",
+        user_note: str | None = None,
     ) -> None:
         """Accept a proposed mutation."""
+
+        candidate_design = (
+            self._get_pending_design()
+        )
+
+        parent_design_id = (
+            candidate_design.parent_design_id
+        )
+
+        if parent_design_id is None:
+            raise RuntimeError(
+                "Pending design has no parent."
+            )
+
+        decision = Decision(
+            parent_design_id=parent_design_id,
+            candidate_design_id=(
+                candidate_design.id
+            ),
+            outcome="accepted",
+            hypothesis=(
+                candidate_design.metadata.get(
+                    "hypothesis",
+                    "",
+                )
+            ),
+            objective=(
+                candidate_design.metadata.get(
+                    "objective",
+                    "",
+                )
+            ),
+            rationale=rationale,
+            user_note=user_note,
+        )
+
+        self.archive.add_decision(
+            decision
+        )
+
+
+        candidate_design.status = "active"
 
         self.pose = mutant_pose
 
         self.history.append(result)
 
+        self.current_design_id = (
+            candidate_design.id
+        )
+
+        self._clear_pending()
+
+        self._autosave_archive()
+
+
+    def reject_mutation(
+        self,
+        rationale: str = "",
+        user_note: str | None = None,
+    ) -> None:
+        """Reject the currently pending mutation."""
+
+        candidate_design = (
+            self._get_pending_design()
+        )
+
+        parent_design_id = (
+            candidate_design.parent_design_id
+        )
+
+        if parent_design_id is None:
+            raise RuntimeError(
+                "Pending design has no parent."
+            )
+
+        decision = Decision(
+            parent_design_id=parent_design_id,
+            candidate_design_id=(
+                candidate_design.id
+            ),
+            outcome="rejected",
+            hypothesis=(
+                candidate_design.metadata.get(
+                    "hypothesis",
+                    "",
+                )
+            ),
+            objective=(
+                candidate_design.metadata.get(
+                    "objective",
+                    "",
+                )
+            ),
+            rationale=rationale,
+            user_note=user_note,
+        )
+
+        self.archive.add_decision(
+            decision
+        )
+
+        candidate_design.status = (
+            "deprioritized"
+        )
+
+        self._clear_pending()
+
+        self._autosave_archive()
+
+    def defer_mutation(
+        self,
+        rationale: str = "",
+        user_note: str | None = None,
+    ) -> None:
+        """Defer the currently pending mutation."""
+
+        candidate_design = (
+            self._get_pending_design()
+        )
+
+        parent_design_id = (
+            candidate_design.parent_design_id
+        )
+
+        if parent_design_id is None:
+            raise RuntimeError(
+                "Pending design has no parent."
+            )
+
+        decision = Decision(
+            parent_design_id=parent_design_id,
+            candidate_design_id=(
+                candidate_design.id
+            ),
+            outcome="deferred",
+            hypothesis=(
+                candidate_design.metadata.get(
+                    "hypothesis",
+                    "",
+                )
+            ),
+            objective=(
+                candidate_design.metadata.get(
+                    "objective",
+                    "",
+                )
+            ),
+            rationale=rationale,
+            user_note=user_note,
+        )
+
+        self.archive.add_decision(
+            decision
+        )
+
+        candidate_design.status = (
+            "deprioritized"
+        )
+
+        self._clear_pending()
+
+    def _get_pending_design(
+        self,
+    ) -> Design:
+        """Return the candidate awaiting a decision."""
+
+        if self.pending_design_id is None:
+            raise RuntimeError(
+                "No mutation is currently awaiting "
+                "a decision."
+            )
+
+        try:
+            return self.archive.designs[
+                self.pending_design_id
+            ]
+        except KeyError as error:
+            raise RuntimeError(
+                "Pending design is missing from "
+                "the archive."
+            ) from error
+
     def save_history_csv(
         self,
         output_path: str | Path,
-        ) -> None:
-        """Save accepted mutation history as CSV."""
+    ) -> None:
+        """Save accepted mutations from this session as CSV."""
 
-        output_path = Path(output_path)
+        output_path = Path(
+            output_path
+        )
 
         output_path.parent.mkdir(
             parents=True,
@@ -201,24 +555,35 @@ class DesignSession:
                 "position": result.position,
                 "wt_aa": result.wt_aa,
                 "mutant_aa": result.mutant_aa,
-                "previous_score": result.previous_score,
-                "mutant_score": result.mutant_score,
-                "delta_score": result.delta_score,
+                "previous_score": (
+                    result.previous_score
+                ),
+                "mutant_score": (
+                    result.mutant_score
+                ),
+                "delta_score": (
+                    result.delta_score
+                ),
             }
 
             for term, value in result.scores.items():
                 row[term] = value
 
                 if term not in fieldnames:
-                    fieldnames.append(term)
+                    fieldnames.append(
+                        term
+                    )
 
-            rows.append(row)
+            rows.append(
+                row
+            )
 
         with output_path.open(
             "w",
             newline="",
             encoding="utf-8",
         ) as file:
+
             writer = csv.DictWriter(
                 file,
                 fieldnames=fieldnames,
@@ -227,13 +592,15 @@ class DesignSession:
             writer.writeheader()
 
             if rows:
-                writer.writerows(rows)
+                writer.writerows(
+                    rows
+                )
 
     def save_history_json(
         self,
         output_path: str | Path,
     ) -> None:
-        """Save the design session as JSON."""
+        """Save legacy accepted-mutation history."""
 
         output_path = Path(output_path)
 
@@ -261,3 +628,91 @@ class DesignSession:
                 file,
                 indent=2,
             )
+
+
+
+    def _save_design_structure(
+        self,
+        design: Design,
+        pose: Pose,
+    ) -> None:
+        """Save the PDB associated with a design."""
+
+        if self.structures_dir is None:
+            return
+
+        structures_dir = Path(
+            self.structures_dir
+        )
+
+        structures_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        mutation = design.metadata.get(
+            "mutation",
+            "design",
+        )
+
+        label = (
+            design.name
+            if design.name
+            else mutation
+        )
+
+        safe_label = (
+            str(label)
+            .strip()
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace(" ", "_")
+        )
+
+        if not safe_label:
+            safe_label = str(
+                mutation
+            )
+
+        structure_path = (
+            structures_dir
+            / f"{safe_label}.pdb"
+        )
+
+        # Never silently overwrite another design.
+        counter = 2
+
+        while structure_path.exists():
+
+            structure_path = (
+                structures_dir
+                / f"{safe_label}_{counter}.pdb"
+            )
+
+            counter += 1
+
+        pose.dump_pdb(
+            str(structure_path)
+        )
+
+        design.structure_path = str(
+            structure_path
+        )
+
+    def _autosave_archive(
+        self,
+    ) -> None:
+        """Persist the project archive."""
+
+        if self.archive_path is None:
+            return
+
+        self.archive.save(
+            self.archive_path
+        )
+    
+    def _clear_pending(self) -> None:
+        """Clear the candidate currently awaiting a decision."""
+
+        self.pending_design_id = None
+        self.pending_evidence_id = None

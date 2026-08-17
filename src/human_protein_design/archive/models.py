@@ -13,14 +13,11 @@ DecisionOutcome = Literal["accepted", "rejected", "deferred"]
 DesignStatus = Literal[
     "active",
     "deprioritized",
-    "superseded",
 ]
 
 EvidenceSourceType = Literal[
-    "rosetta",
-    "structure_inspection",
     "computational",
-    "experiment",
+    "experimental",
     "literature",
     "note",
 ]
@@ -48,6 +45,8 @@ class Design:
     parent_design_id: str | None = None
 
     status: DesignStatus = "active"
+
+    name: str | None = None
 
     structure_path: str | None = None
 
