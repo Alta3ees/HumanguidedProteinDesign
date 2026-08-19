@@ -314,7 +314,7 @@ def decide_candidate(
     rationale: str,
     user_note: str | None = None,
 ) -> Decision:
-    """Record the scientist's decision for a mutation candidate."""
+    """Append a scientist decision; previous decisions remain part of provenance."""
     if outcome not in {"accepted", "rejected", "deferred"}:
         raise ValueError("Decision must be accepted, rejected, or deferred.")
     candidate = project.archive.get_design(candidate_design_id)
@@ -322,21 +322,22 @@ def decide_candidate(
     if parent_id is None:
         raise ValueError("Root designs cannot be accepted/rejected as mutation candidates.")
 
-    existing = project.archive.get_design_decisions(candidate_design_id)
-    if existing:
-        raise ValueError("This candidate already has a recorded decision.")
-
     decision = Decision(
         parent_design_id=parent_id,
         candidate_design_id=candidate_design_id,
         outcome=outcome,  # type: ignore[arg-type]
-        hypothesis=str(candidate.metadata.get("hypothesis", "")),
+        hypothesis=str(candidate.metadata.get("hypothesis", candidate.hypothesis or "")),
         objective=str(candidate.metadata.get("objective", "")),
         rationale=rationale.strip(),
         user_note=(user_note or "").strip() or None,
     )
     project.archive.add_decision(decision)
-    candidate.status = "active" if outcome == "accepted" else "deprioritized"
+    if outcome == "accepted":
+        candidate.status = "active"
+    elif outcome == "rejected":
+        candidate.status = "deprioritized"
+    # Deferred is deliberately non-terminal: retain the current branch status so
+    # new evidence can be attached and a later decision can be appended.
     project.save()
     return decision
 
