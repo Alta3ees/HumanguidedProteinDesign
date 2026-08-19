@@ -19,7 +19,7 @@ from human_protein_design.archive import (
     export_obsidian_vault,
     export_project_summary,
 )
-from human_protein_design.fasta import validate_amino_acid
+from human_protein_design.fasta import normalize_sequence, validate_amino_acid
 
 
 def resolve_design_structure(project: DesignProject, design_id: str) -> Path:
@@ -90,6 +90,74 @@ def _load_pose(project: DesignProject, design_id: str):
     return pose, structure_path
 
 
+def _structure_sequence_status(project: DesignProject, design_id: str, pose) -> dict[str, object]:
+    """Describe whether a loaded pose can safely represent a design sequence."""
+    design = project.archive.get_design(design_id)
+    raw_pose_sequence = pose.sequence()
+    try:
+        pose_sequence = normalize_sequence(raw_pose_sequence)
+        canonical_pose = True
+    except ValueError:
+        pose_sequence = raw_pose_sequence
+        canonical_pose = False
+
+    design_sequence = design.sequence
+    design_length = len(design_sequence) if design_sequence else None
+    pose_length = pose.total_residue()
+    exact_match = bool(
+        design_sequence
+        and canonical_pose
+        and len(design_sequence) == pose_length
+        and design_sequence == pose_sequence
+    )
+
+    warning: str | None = None
+    if design_sequence is None:
+        if not canonical_pose:
+            warning = (
+                "The structure contains non-canonical or unsupported residues, so HGD cannot derive a safe "
+                "design sequence from it for mutation design."
+            )
+    elif design_length != pose_length:
+        warning = (
+            f"Design/structure mismatch: this design has {design_length} residues, but the selected structure "
+            f"contains {pose_length}. Attach a structure that represents this design before running mutations or scans."
+        )
+    elif not canonical_pose:
+        warning = (
+            "The structure sequence contains non-canonical or unsupported residues. HGD can score the structure, "
+            "but cannot safely create mutation children from it."
+        )
+    elif design_sequence != pose_sequence:
+        mismatch_positions = [
+            index
+            for index, (design_aa, pose_aa) in enumerate(zip(design_sequence, pose_sequence), start=1)
+            if design_aa != pose_aa
+        ]
+        preview = ", ".join(map(str, mismatch_positions[:8]))
+        suffix = "…" if len(mismatch_positions) > 8 else ""
+        warning = (
+            f"Design/structure sequence mismatch at {len(mismatch_positions)} position(s)"
+            f" ({preview}{suffix}). Attach the matching structure before mutation design."
+        )
+
+    return {
+        "design_sequence_length": design_length,
+        "structure_sequence_length": pose_length,
+        "sequence_match": exact_match if design_sequence else canonical_pose,
+        "sequence_warning": warning,
+        "pose_sequence": pose_sequence,
+    }
+
+
+def _require_mutation_compatible_structure(project: DesignProject, design_id: str, pose) -> None:
+    """Reject mutation/scanning when residue numbering cannot safely map to the design."""
+    status = _structure_sequence_status(project, design_id, pose)
+    warning = status["sequence_warning"]
+    if warning:
+        raise ValueError(str(warning))
+
+
 def score_current_structure(
     project: DesignProject,
     *,
@@ -107,6 +175,7 @@ def score_current_structure(
     ) = _pyrosetta_tools()
     pose, structure_path = _load_pose(project, design_id)
     scores = get_score_terms(pose, get_standard_score_function())
+    compatibility = _structure_sequence_status(project, design_id, pose)
     evidence = EvidenceEntry(
         source_type="computational",
         source_name="PyRosetta structure score",
@@ -119,6 +188,7 @@ def score_current_structure(
             "sequence": pose.sequence(),
             "total_score": scores["total_score"],
             "score_terms": scores,
+            **compatibility,
         },
     )
     project.archive.add_evidence(evidence)
@@ -144,6 +214,7 @@ def run_position_scan(
         _DesignSession,
     ) = _pyrosetta_tools()
     pose, _ = _load_pose(project, design_id)
+    _require_mutation_compatible_structure(project, design_id, pose)
     if position < 1 or position > pose.total_residue():
         raise ValueError(f"Position must be between 1 and {pose.total_residue()}.")
     if radius <= 0:
@@ -228,6 +299,7 @@ def evaluate_point_mutation(
         DesignSession,
     ) = _pyrosetta_tools()
     pose, _ = _load_pose(project, design_id)
+    _require_mutation_compatible_structure(project, design_id, pose)
     if position < 1 or position > pose.total_residue():
         raise ValueError(f"Position must be between 1 and {pose.total_residue()}.")
     mutant_aa = validate_amino_acid(mutant_aa)
@@ -261,8 +333,6 @@ def evaluate_point_mutation(
     candidate.target_id = parent.target_id
     candidate.hypothesis = hypothesis.strip() or None
 
-    # Promote the generated PDB from the legacy design field to a first-class
-    # StructureModel so the browser/PyMOL workflow sees it immediately.
     if candidate.structure_path:
         structure_path = Path(candidate.structure_path).resolve()
         try:
@@ -336,8 +406,6 @@ def decide_candidate(
         candidate.status = "active"
     elif outcome == "rejected":
         candidate.status = "deprioritized"
-    # Deferred is deliberately non-terminal: retain the current branch status so
-    # new evidence can be attached and a later decision can be appended.
     project.save()
     return decision
 
