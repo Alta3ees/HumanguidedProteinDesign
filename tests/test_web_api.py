@@ -98,6 +98,44 @@ def test_local_file_upload_is_archived_as_evidence(tmp_path, monkeypatch):
         assert (project.root_dir / relative_path).is_file()
 
 
+def test_quick_attach_derives_metadata_and_file_can_be_opened(tmp_path, monkeypatch):
+    projects_root = tmp_path / "projects"
+    project, root = make_demo_project(projects_root)
+    project.save()
+
+    monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
+    client = TestClient(api.app)
+
+    upload = client.post(
+        f"/api/projects/demo/designs/{root.id}/evidence",
+        data={"source_type": "literature"},
+        files={"files": ("paper.pdf", b"local-pdf-bytes", "application/pdf")},
+    )
+    assert upload.status_code == 200
+    payload = upload.json()
+    evidence = payload["evidence"]
+    assert evidence["source_name"] == "paper"
+    assert evidence["summary"] == "Imported local file: paper.pdf"
+
+    stored_path = payload["stored_files"][0]
+    opened = client.get(f"/api/projects/demo/files/{stored_path}")
+    assert opened.status_code == 200
+    assert opened.content == b"local-pdf-bytes"
+
+
+def test_local_file_route_cannot_escape_evidence_directory(tmp_path, monkeypatch):
+    projects_root = tmp_path / "projects"
+    project, _ = make_demo_project(projects_root)
+    project.save()
+    secret = project.root_dir / "secret.txt"
+    secret.write_text("private", encoding="utf-8")
+
+    monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
+    client = TestClient(api.app)
+    response = client.get("/api/projects/demo/files/secret.txt")
+    assert response.status_code == 403
+
+
 def test_project_api_rejects_path_traversal(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "PROJECTS_ROOT", tmp_path)
     client = TestClient(api.app)
