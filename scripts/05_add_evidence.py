@@ -4,212 +4,58 @@ from human_protein_design.archive import (
     DesignProject,
     add_external_evidence,
 )
-
-
-PROJECT_DIR = Path(
-    "data/projects/gb1_design"
+from human_protein_design.cli import (
+    ask_choice,
+    ask_text,
+    choose_files,
+    choose_item,
+    choose_project,
 )
 
 
-def choose_design(project):
-    """Let the user choose a design from the archive."""
-
-    designs = list(
-        project.archive.designs.values()
+def design_label(project: DesignProject, design) -> str:
+    latest_decision = project.archive.get_latest_decision(design.id)
+    decision_text = latest_decision.outcome if latest_decision is not None else "none"
+    return (
+        f"{project.archive.get_lineage_label(design.id)} "
+        f"status={design.status} decision={decision_text}"
     )
-
-    if not designs:
-        raise RuntimeError(
-            "Project contains no designs."
-        )
-
-    print("\nAvailable designs")
-    print("-" * 60)
-
-    for index, design in enumerate(
-        designs,
-        start=1,
-    ):
-        lineage = (
-            project.archive.get_lineage_label(
-                design.id
-            )
-        )
-
-        latest_decision = (
-            project.archive.get_latest_decision(
-                design.id
-            )
-        )
-
-        decision_text = (
-            latest_decision.outcome
-            if latest_decision is not None
-            else "none"
-        )
-
-        print(
-            f"{index:>3}. "
-            f"{lineage:<30} "
-            f"status={design.status:<15} "
-            f"decision={decision_text}"
-        )
-
-    while True:
-
-        choice = input(
-            "\nChoose design number: "
-        ).strip()
-
-        try:
-            index = int(choice)
-
-        except ValueError:
-            print(
-                "Enter a valid number."
-            )
-            continue
-
-        if not (
-            1 <= index <= len(designs)
-        ):
-            print(
-                "Design number outside range."
-            )
-            continue
-
-        return designs[
-            index - 1
-        ]
-
-
-def choose_source_type() -> str:
-    """Choose one of the simple evidence categories."""
-
-    options = {
-        "1": "computational",
-        "2": "experimental",
-        "3": "literature",
-        "4": "note",
-    }
-
-    print("\nEvidence type")
-    print("-" * 30)
-    print("1. Computational")
-    print("2. Experimental")
-    print("3. Literature")
-    print("4. Note")
-
-    while True:
-
-        choice = input(
-            "\nChoose type: "
-        ).strip()
-
-        if choice in options:
-            return options[
-                choice
-            ]
-
-        print(
-            "Choose 1, 2, 3, or 4."
-        )
-
-
-def collect_files() -> list[str]:
-    """Collect existing evidence files."""
-
-    files: list[str] = []
-
-    print(
-        "\nAttach files one at a time."
-    )
-
-    print(
-        "Press Enter with no path when finished."
-    )
-
-    while True:
-
-        path = input(
-            "File path: "
-        ).strip()
-
-        if not path:
-            break
-
-        file_path = Path(
-            path
-        ).expanduser()
-
-        if not file_path.exists():
-
-            print(
-                "File not found."
-            )
-
-            continue
-
-        if not file_path.is_file():
-
-            print(
-                "Path is not a file."
-            )
-
-            continue
-
-        print(
-            f"Found: {file_path}"
-        )
-
-        files.append(
-            str(file_path)
-        )
-
-    return files
 
 
 def main() -> None:
     """Attach external scientific evidence."""
+    project_dir = choose_project()
+    project = DesignProject.load(name=project_dir.name, root_dir=project_dir)
 
-    project = DesignProject.load(
-        name="GB1 Human-Guided Design",
-        root_dir=PROJECT_DIR,
+    designs = list(project.archive.designs.values())
+    if not designs:
+        raise SystemExit("Project contains no designs.")
+
+    design = choose_item(
+        designs,
+        "Choose design",
+        label=lambda item: design_label(project, item),
+    )
+    assert design is not None
+
+    print("\nEvidence type:\n  1. Computational\n  2. Experimental\n  3. Literature\n  4. Note")
+    source_type = ask_choice(
+        "Choose type",
+        {
+            "1": "computational",
+            "2": "experimental",
+            "3": "literature",
+            "4": "note",
+        },
     )
 
-    design = choose_design(
-        project
+    source_name = ask_text("Technique / source", required=False) or source_type
+    summary = ask_text("Short summary")
+    notes = ask_text("Notes", required=False) or None
+    files = choose_files(
+        Path.cwd(),
+        "Select evidence file",
     )
-
-    print(
-        "\nSelected:"
-    )
-
-    print(
-        "  "
-        + project.archive.get_lineage_label(
-            design.id
-        )
-    )
-
-    source_type = choose_source_type()
-
-    source_name = input(
-        "\nTechnique / source: "
-    ).strip()
-
-    if not source_name:
-        source_name = source_type
-
-    summary = input(
-        "Short summary: "
-    ).strip()
-
-    notes = input(
-        "Notes (optional): "
-    ).strip()
-
-    files = collect_files()
 
     evidence = add_external_evidence(
         archive=project.archive,
@@ -217,48 +63,25 @@ def main() -> None:
         source_type=source_type,
         source_name=source_name,
         summary=summary,
-        files=files,
-        notes=notes or None,
+        files=[str(path) for path in files],
+        notes=notes,
         project_root=project.root_dir,
         copy_files=True,
     )
 
     project.save()
 
-    print(
-        "\nEvidence added."
-    )
-
-    print(
-        f"Evidence ID: {evidence.id}"
-    )
-
-    print(
-        "Design: "
-        + project.archive.get_lineage_label(
-            design.id
-        )
-    )
-
-    print(
-        f"Type: {evidence.source_type}"
-    )
-
-    print(
-        f"Source: {evidence.source_name}"
-    )
+    print("\nEvidence added.")
+    print(f"Evidence ID: {evidence.id}")
+    print("Design: " + project.archive.get_lineage_label(design.id))
+    print(f"Type: {evidence.source_type}")
+    print(f"Source: {evidence.source_name}")
 
     if evidence.file_paths:
-
-        print(
-            "\nStored files:"
-        )
-
+        print("\nStored files:")
         for path in evidence.file_paths:
+            print(f"  {path}")
 
-            print(
-                f"  {path}"
-            )
 
 if __name__ == "__main__":
     main()

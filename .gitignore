@@ -36,6 +36,18 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# =========================
+# Frontend / Node
+# =========================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
 # ============================================================
 # Generated scientific data
 # ============================================================
@@ -46,18 +58,17 @@ data/results/mutation_scans/
 # Legacy human-guided session outputs
 data/results/human_guided_sessions/
 
-# v0.3 persistent local design projects
+# Persistent local design projects
 #
 # These may contain:
-# - generated PDB structures
+# - generated structures
 # - design_archive.json
+# - PROJECT_CONTEXT.md
 # - experimental evidence
 # - NMR/SPR/SEC/CD data
 # - literature files
 # - notes
 # - session outputs
-# - Obsidian exports
-# - PROJECT_SUMMARY.md
 data/projects/
 
 # Temporary archive-development output
