@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { DesignNode, EvidenceEntry, ProjectDetail, ProjectListItem } from "./types";
 
-type PositionedNode = { node: DesignNode; x: number; y: number };
+type PositionedNode = { node: DesignNode; x: number; y: number; depth: number };
 type Edge = { from: PositionedNode; to: PositionedNode };
 
 function findDesign(nodes: DesignNode[], id: string | null): DesignNode | null {
@@ -22,42 +22,64 @@ function StatusBadge({ value }: { value: string }) {
   return <span className={`badge badge-${value}`}>{value}</span>;
 }
 
-function layoutMindmap(roots: DesignNode[]) {
+function subtreeWeight(node: DesignNode): number {
+  if (node.children.length === 0) return 1;
+  return node.children.reduce((sum, child) => sum + subtreeWeight(child), 0);
+}
+
+function treeDepth(node: DesignNode): number {
+  if (node.children.length === 0) return 0;
+  return 1 + Math.max(...node.children.map(treeDepth));
+}
+
+function layoutRadial(roots: DesignNode[]) {
   const positioned: PositionedNode[] = [];
   const edges: Edge[] = [];
-  let nextLeaf = 0;
-  const xGap = 245;
-  const yGap = 145;
-  const left = 30;
-  const top = 35;
+  const ringGap = 195;
+  const nodeMargin = 130;
+  const maxDepth = roots.length === 0 ? 0 : Math.max(...roots.map(treeDepth)) + (roots.length > 1 ? 1 : 0);
+  const radius = Math.max(260, maxDepth * ringGap + nodeMargin);
+  const size = Math.max(760, radius * 2);
+  const center = size / 2;
 
-  function visit(node: DesignNode, depth: number): PositionedNode {
-    const children = node.children.map((child) => visit(child, depth + 1));
-    let row: number;
-    if (children.length === 0) {
-      row = nextLeaf++;
-    } else {
-      row = children.reduce((sum, child) => sum + (child.y - top) / yGap, 0) / children.length;
-    }
-    const current = { node, x: left + depth * xGap, y: top + row * yGap };
+  function place(node: DesignNode, depth: number, startAngle: number, endAngle: number): PositionedNode {
+    const angle = (startAngle + endAngle) / 2;
+    const radialDistance = depth * ringGap;
+    const current: PositionedNode = {
+      node,
+      x: center + Math.cos(angle) * radialDistance,
+      y: center + Math.sin(angle) * radialDistance,
+      depth,
+    };
     positioned.push(current);
-    children.forEach((child) => edges.push({ from: current, to: child }));
+
+    if (node.children.length > 0) {
+      const totalWeight = node.children.reduce((sum, child) => sum + subtreeWeight(child), 0);
+      let cursor = startAngle;
+      for (const child of node.children) {
+        const share = (endAngle - startAngle) * (subtreeWeight(child) / totalWeight);
+        const childPosition = place(child, depth + 1, cursor, cursor + share);
+        edges.push({ from: current, to: childPosition });
+        cursor += share;
+      }
+    }
+
     return current;
   }
 
-  roots.forEach((root, index) => {
-    if (index > 0) nextLeaf += 1;
-    visit(root, 0);
-  });
+  if (roots.length === 1) {
+    place(roots[0], 0, -Math.PI, Math.PI);
+  } else if (roots.length > 1) {
+    const totalWeight = roots.reduce((sum, root) => sum + subtreeWeight(root), 0);
+    let cursor = -Math.PI;
+    for (const root of roots) {
+      const share = 2 * Math.PI * (subtreeWeight(root) / totalWeight);
+      place(root, 1, cursor, cursor + share);
+      cursor += share;
+    }
+  }
 
-  const maxX = Math.max(0, ...positioned.map((item) => item.x));
-  const maxY = Math.max(0, ...positioned.map((item) => item.y));
-  return {
-    positioned,
-    edges,
-    width: Math.max(780, maxX + 245),
-    height: Math.max(430, maxY + 150),
-  };
+  return { positioned, edges, size, center, maxDepth };
 }
 
 function Mindmap({
@@ -69,7 +91,7 @@ function Mindmap({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const layout = useMemo(() => layoutMindmap(roots), [roots]);
+  const layout = useMemo(() => layoutRadial(roots), [roots]);
 
   if (roots.length === 0) {
     return <div className="empty-panel">This project has an objective but no designs yet.</div>;
@@ -77,32 +99,31 @@ function Mindmap({
 
   return (
     <div className="mindmap-scroll">
-      <div className="mindmap" style={{ width: layout.width, height: layout.height }}>
-        <svg className="mindmap-edges" width={layout.width} height={layout.height} aria-hidden="true">
-          {layout.edges.map(({ from, to }) => {
-            const x1 = from.x + 190;
-            const y1 = from.y + 42;
-            const x2 = to.x;
-            const y2 = to.y + 42;
-            const bend = (x1 + x2) / 2;
-            return (
-              <path
-                key={`${from.node.id}-${to.node.id}`}
-                d={`M ${x1} ${y1} C ${bend} ${y1}, ${bend} ${y2}, ${x2} ${y2}`}
-              />
-            );
+      <div className="mindmap radial-map" style={{ width: layout.size, height: layout.size }}>
+        <svg className="mindmap-edges" width={layout.size} height={layout.size} aria-hidden="true">
+          {Array.from({ length: layout.maxDepth }, (_, index) => {
+            const radius = (index + 1) * 195;
+            return <circle key={radius} className="generation-ring" cx={layout.center} cy={layout.center} r={radius} />;
           })}
+          {layout.edges.map(({ from, to }) => (
+            <path
+              key={`${from.node.id}-${to.node.id}`}
+              className="lineage-edge"
+              d={`M ${from.x} ${from.y} L ${to.x} ${to.y}`}
+            />
+          ))}
         </svg>
 
-        {layout.positioned.map(({ node, x, y }) => {
+        {layout.positioned.map(({ node, x, y, depth }) => {
           const outcome = node.decision?.outcome ?? "none";
           const evidenceTotal = Object.values(node.evidence_counts).reduce((sum, count) => sum + count, 0);
           return (
             <button
               key={node.id}
-              className={`mindmap-node status-${node.status} decision-${outcome} ${selectedId === node.id ? "selected" : ""}`}
+              className={`mindmap-node radial-node status-${node.status} decision-${outcome} ${selectedId === node.id ? "selected" : ""}`}
               style={{ left: x, top: y }}
               onClick={() => onSelect(node.id)}
+              title={`Generation ${depth}: ${node.lineage_label}`}
             >
               <div className="node-title">{node.label}</div>
               <div className="node-subtitle">{node.metadata?.mutation ? String(node.metadata.mutation) : node.origin}</div>
@@ -152,6 +173,27 @@ function RosettaCard({ entry }: { entry: EvidenceEntry }) {
   );
 }
 
+function localFileUrl(slug: string, path: string): string {
+  const encodedPath = path.split("/").map((part) => encodeURIComponent(part)).join("/");
+  return `/api/projects/${encodeURIComponent(slug)}/files/${encodedPath}`;
+}
+
+function EvidenceFiles({ slug, paths }: { slug: string; paths: string[] }) {
+  return (
+    <div className="attached-files">
+      {paths.map((path) => {
+        const name = path.split("/").pop() ?? path;
+        return (
+          <a key={path} className="local-file-link" href={localFileUrl(slug, path)} target="_blank" rel="noreferrer">
+            <span className="file-icon">↗</span>
+            <span><b>{name}</b><small>{path}</small></span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function EvidenceImporter({
   slug,
   design,
@@ -196,12 +238,13 @@ function EvidenceImporter({
       }
       const payload = await response.json();
       onImported(payload.project as ProjectDetail);
+      const importedCount = Array.isArray(payload.stored_files) ? payload.stored_files.length : files.length;
       setFiles([]);
       setSourceName("");
       setSummary("");
       setNotes("");
       if (inputRef.current) inputRef.current.value = "";
-      setMessage("Imported locally and attached to this design.");
+      setMessage(`Attached ${importedCount} local file${importedCount === 1 ? "" : "s"}. Evidence updated above.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Import failed.");
     } finally {
@@ -227,15 +270,15 @@ function EvidenceImporter({
               <option value="note">Note</option>
             </select>
           </label>
-          <label>Source
-            <input value={sourceName} onChange={(event) => setSourceName(event.target.value)} placeholder="NMR, SEC, PyMOL, paper..." required />
+          <label>Source <span className="optional-label">optional</span>
+            <input value={sourceName} onChange={(event) => setSourceName(event.target.value)} placeholder="NMR, SEC, paper…" />
           </label>
         </div>
-        <label>Summary
-          <textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="What does this evidence show?" required />
+        <label>Summary <span className="optional-label">optional</span>
+          <textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="Leave blank to use the filename automatically." />
         </label>
-        <label>Notes
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional interpretation or context" />
+        <label>Notes <span className="optional-label">optional</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Interpretation or context" />
         </label>
         <input ref={inputRef} type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
         <div className="upload-zone" onClick={() => inputRef.current?.click()}>
@@ -243,7 +286,7 @@ function EvidenceImporter({
           <span>NMR spectra, CSV, images, PDFs, raw instrument files, model outputs…</span>
         </div>
         {files.length > 0 && <div className="file-list">{files.map((file) => <span key={`${file.name}-${file.size}`}>{file.name}</span>)}</div>}
-        <button className="primary-button" type="submit" disabled={busy}>{busy ? "Importing…" : "Attach evidence"}</button>
+        <button className="primary-button" type="submit" disabled={busy || files.length === 0}>{busy ? "Importing…" : "Attach evidence"}</button>
         {message && <p className="form-message">{message}</p>}
       </form>
     </section>
@@ -280,7 +323,18 @@ function DesignInspector({
       {design.decision && <section><h3>Human decision</h3><div className="record-card"><strong>{design.decision.outcome}</strong><p><b>Objective:</b> {design.decision.objective}</p><p><b>Hypothesis:</b> {design.decision.hypothesis}</p>{design.decision.rationale && <p><b>Rationale:</b> {design.decision.rationale}</p>}</div></section>}
       {computational.length > 0 && <section><h3>Computational evaluation</h3><div className="record-list">{computational.map((entry) => <RosettaCard key={entry.id} entry={entry} />)}</div></section>}
       <section><h3>Structural hypotheses</h3>{design.structures.length === 0 ? <p className="muted">No structure attached.</p> : <div className="record-list">{design.structures.map((structure) => <article className="record-card" key={structure.id}><div className="record-title"><strong>{structure.source}</strong><span className="mono">{structure.structure_path}</span></div>{structure.method && <p>{structure.method}</p>}<div className="metrics">{structure.mean_plddt != null && <span>pLDDT {structure.mean_plddt.toFixed(1)}</span>}{structure.ptm != null && <span>pTM {structure.ptm.toFixed(2)}</span>}{structure.iptm != null && <span>ipTM {structure.iptm.toFixed(2)}</span>}</div></article>)}</div>}</section>
-      <section><h3>Evidence</h3><div className="evidence-strip">{Object.entries(design.evidence_counts).map(([kind, count]) => <span key={kind}><b>{count}</b> {kind}</span>)}</div>{design.evidence.length > 0 && <div className="record-list">{design.evidence.map((entry) => <article className="record-card" key={entry.id}><div className="record-title"><strong>{entry.source_name}</strong><span>{entry.source_type}</span></div><p>{entry.summary}</p>{entry.notes && <p className="muted">{entry.notes}</p>}{entry.file_paths && entry.file_paths.length > 0 && <div className="file-list">{entry.file_paths.map((path) => <span key={path}>{path}</span>)}</div>}</article>)}</div>}</section>
+      <section>
+        <h3>Evidence</h3>
+        <div className="evidence-strip">{Object.entries(design.evidence_counts).map(([kind, count]) => <span key={kind}><b>{count}</b> {kind}</span>)}</div>
+        {design.evidence.length > 0 && <div className="record-list">{design.evidence.map((entry) => (
+          <article className="record-card" key={entry.id}>
+            <div className="record-title"><strong>{entry.source_name}</strong><span>{entry.source_type}</span></div>
+            <p>{entry.summary}</p>
+            {entry.notes && <p className="muted">{entry.notes}</p>}
+            {slug && entry.file_paths && entry.file_paths.length > 0 && <EvidenceFiles slug={slug} paths={entry.file_paths} />}
+          </article>
+        ))}</div>}
+      </section>
       {slug && <EvidenceImporter slug={slug} design={design} onImported={onImported} />}
     </div>
   );
@@ -295,13 +349,22 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/projects").then((response) => { if (!response.ok) throw new Error("Could not load projects."); return response.json(); }).then((data: ProjectListItem[]) => { setProjects(data); if (data.length > 0) setSelectedSlug(data[0].slug); }).catch((err: Error) => setError(err.message)).finally(() => setLoading(false));
+    fetch("/api/projects")
+      .then((response) => { if (!response.ok) throw new Error("Could not load projects."); return response.json(); })
+      .then((data: ProjectListItem[]) => { setProjects(data); if (data.length > 0) setSelectedSlug(data[0].slug); })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     if (!selectedSlug) { setProject(null); return; }
-    setLoading(true); setError(null);
-    fetch(`/api/projects/${encodeURIComponent(selectedSlug)}`).then((response) => { if (!response.ok) throw new Error("Could not load project archive."); return response.json(); }).then((data: ProjectDetail) => { setProject(data); setSelectedDesignId(firstDesign(data.design_tree)?.id ?? null); }).catch((err: Error) => setError(err.message)).finally(() => setLoading(false));
+    setLoading(true);
+    setError(null);
+    fetch(`/api/projects/${encodeURIComponent(selectedSlug)}`)
+      .then((response) => { if (!response.ok) throw new Error("Could not load project archive."); return response.json(); })
+      .then((data: ProjectDetail) => { setProject(data); setSelectedDesignId(firstDesign(data.design_tree)?.id ?? null); })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
   }, [selectedSlug]);
 
   const selectedDesign = useMemo(() => findDesign(project?.design_tree ?? [], selectedDesignId), [project, selectedDesignId]);
@@ -316,7 +379,7 @@ export default function App() {
       <header className="topbar"><div><p className="eyebrow">Human-Guided Protein Design</p><h1>Research workspace</h1></div><div className="topbar-meta"><span className="local-pill">Local only</span><span className="version">v0.4 dev</span></div></header>
       <div className="workspace">
         <aside className="sidebar"><div className="panel-title"><span>Projects</span><span className="count">{projects.length}</span></div>{projects.map((item) => <button key={item.slug} className={`project-button ${selectedSlug === item.slug ? "active" : ""}`} onClick={() => setSelectedSlug(item.slug)}><strong>{item.name}</strong><span>{item.design_count} designs · {item.structure_count} structures · {item.evidence_count} evidence</span></button>)}{!loading && projects.length === 0 && <p className="muted">No projects found in data/projects.</p>}</aside>
-        <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2></div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div></div>{project.objectives.length > 0 && <div className="objective-card"><span className="eyebrow">Scientific objective</span><p>{project.objectives[0].description}</p>{project.objectives[0].constraints.length > 0 && <div className="chips">{project.objectives[0].constraints.map((constraint) => <span key={constraint}>{constraint}</span>)}</div>}</div>}<div className="tree-panel"><div className="panel-title"><span>Design map</span><span className="muted">click a node to inspect</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={setSelectedDesignId} /></div></>}</section>
+        <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2></div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div></div>{project.objectives.length > 0 && <div className="objective-card"><span className="eyebrow">Scientific objective</span><p>{project.objectives[0].description}</p>{project.objectives[0].constraints.length > 0 && <div className="chips">{project.objectives[0].constraints.map((constraint) => <span key={constraint}>{constraint}</span>)}</div>}</div>}<div className="tree-panel"><div className="panel-title"><span>Radial design map</span><span className="muted">WT center · generations expand outward</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={setSelectedDesignId} /></div></>}</section>
         <aside className="inspector"><DesignInspector design={selectedDesign} slug={selectedSlug} onImported={handleImported} /></aside>
       </div>
     </main>
