@@ -263,6 +263,60 @@ def attach_structure_file(
     return structure
 
 
+def delete_structure(project: DesignProject, structure_id: str) -> list[str]:
+    """Delete a structure record and only its copied project-local structure file.
+
+    Evidence is preserved as scientific provenance. Any evidence that pointed at
+    the deleted StructureModel is detached from that model, its deleted file path
+    is removed, and a provenance flag is added so the historical record remains
+    truthful without keeping a dangling structure reference.
+    """
+    try:
+        structure = project.archive.structures[structure_id]
+    except KeyError as error:
+        raise KeyError(f"Unknown structure: {structure_id}") from error
+
+    deleted_files: list[str] = []
+    stored_path = structure.structure_path
+    candidate = Path(stored_path)
+    if not candidate.is_absolute():
+        candidate = (project.root_dir / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    structures_root = project.structures_dir.resolve()
+    try:
+        candidate.relative_to(structures_root)
+    except ValueError:
+        # Never delete an external file or any project file outside structures/.
+        pass
+    else:
+        if candidate.is_file():
+            candidate.unlink()
+            try:
+                deleted_files.append(str(candidate.relative_to(project.root_dir.resolve())))
+            except ValueError:
+                deleted_files.append(stored_path)
+
+    design = project.archive.get_design(structure.design_id)
+    if design.structure_path == stored_path:
+        design.structure_path = None
+
+    for evidence in project.archive.evidence.values():
+        if evidence.structure_id != structure_id:
+            continue
+        evidence.structure_id = None
+        evidence.file_paths = [path for path in evidence.file_paths if path != stored_path]
+        evidence.data = dict(evidence.data)
+        evidence.data["structure_removed"] = True
+        evidence.data["removed_structure_id"] = structure_id
+        evidence.data["removed_structure_path"] = stored_path
+
+    del project.archive.structures[structure_id]
+    project.save()
+    return deleted_files
+
+
 def delete_evidence(project: DesignProject, evidence_id: str) -> list[str]:
     """Delete one evidence record and only its private evidence-directory files."""
     try:
