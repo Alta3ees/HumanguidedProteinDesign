@@ -1,23 +1,23 @@
 name: human-guided-protein-design
 channels:
   - conda-forge
-  - defaults
+
 dependencies:
   - python=3.11
   - pip
   - nodejs>=20
   - pip:
-      - -e .[web]
+      - -e .[web,dev]
 
-# PyMOL is intentionally optional.
-# HGD uses whichever local PyMOL executable the scientist already has,
-# including licensed Incentive PyMOL or open-source PyMOL.
-# If no PyMOL is installed, one free option is:
+# Optional scientific tools
+# -------------------------
+# PyMOL is intentionally optional. HGD discovers and uses an existing local
+# licensed or open-source PyMOL installation. If none is installed, one free
+# option is:
 #   conda install -c conda-forge pymol-open-source
-# Licensed PyMOL users can install/use their Schrödinger distribution instead.
+# You may explicitly select an executable with HGD_PYMOL.
 #
-# PyRosetta is also intentionally not listed here because its distribution and
-# installation mechanism is separate from normal conda-forge/PyPI packaging.
-# Install the PyRosetta build appropriate for your platform into this
-# environment, then verify with:
-#   python -c "import pyrosetta; print(pyrosetta.__version__)"
+# PyRosetta is intentionally optional because its distribution/platform support
+# is separate from normal conda-forge/PyPI packaging. The archive, web UI,
+# evidence management, structure management, and provenance workflow run without
+# PyRosetta. PyRosetta-specific tests skip automatically when it is unavailable.
