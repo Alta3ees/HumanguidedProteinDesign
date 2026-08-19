@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,10 @@ class RegisterDesignRequest(BaseModel):
     source_tool: str | None = None
 
 
+class LaunchPyMOLRequest(BaseModel):
+    relative_path: str
+
+
 def _project_dir(slug: str) -> Path:
     if not slug or slug in {".", ".."} or any(char in slug for char in "/\\"):
         raise HTTPException(status_code=400, detail="Invalid project slug.")
@@ -73,6 +78,22 @@ def _project_dir(slug: str) -> Path:
     if not (path / "design_archive.json").is_file():
         raise HTTPException(status_code=404, detail="Project archive not found.")
     return path
+
+
+def _project_file(slug: str, relative_path: str) -> Path:
+    """Resolve one file while keeping access inside the selected project."""
+    project_path = _project_dir(slug).resolve()
+    requested = Path(relative_path)
+    if requested.is_absolute():
+        raise HTTPException(status_code=400, detail="Expected a project-relative file path.")
+    candidate = (project_path / requested).resolve()
+    try:
+        candidate.relative_to(project_path)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail="File is outside the selected project directory.") from error
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Project file not found.")
+    return candidate
 
 
 def _load_project(slug: str) -> DesignProject:
@@ -270,27 +291,40 @@ def attach_structure_endpoint(
 
 @app.get("/api/projects/{slug}/files/{relative_path:path}")
 def open_project_file(slug: str, relative_path: str) -> FileResponse:
-    """Serve any file stored inside the selected local HGD project directory.
+    """Serve any file stored inside the selected local HGD project directory."""
+    return FileResponse(_project_file(slug, relative_path))
 
-    HGD v0.4 is a local-first workspace. The browser is allowed to inspect any
-    file that belongs to the selected project (structures, evidence, exports,
-    generated outputs, etc.). Path traversal outside that project remains
-    blocked so a project URL cannot become a generic filesystem browser.
-    """
-    project_path = _project_dir(slug).resolve()
-    requested = Path(relative_path)
-    if requested.is_absolute():
-        raise HTTPException(status_code=400, detail="Invalid file path.")
 
-    candidate = (project_path / requested).resolve()
+@app.post("/api/projects/{slug}/launch-pymol")
+def launch_pymol(slug: str, request: LaunchPyMOLRequest) -> dict[str, str]:
+    """Launch the active environment's local PyMOL GUI for a project file."""
+    structure_path = _project_file(slug, request.relative_path)
+    suffix = structure_path.suffix.lower()
+    if suffix not in {".pdb", ".ent", ".cif", ".mmcif", ".pqr"}:
+        raise HTTPException(status_code=400, detail="PyMOL launch is limited to molecular structure files.")
+
+    pymol_executable = shutil.which("pymol")
+    if pymol_executable is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "PyMOL was not found in the backend environment. "
+                "Install/activate the environment from environment.yml, then restart HGD."
+            ),
+        )
+
     try:
-        candidate.relative_to(project_path)
-    except ValueError as error:
-        raise HTTPException(status_code=403, detail="File is outside the selected project directory.") from error
+        subprocess.Popen(
+            [pymol_executable, str(structure_path)],
+            cwd=str(structure_path.parent),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as error:
+        raise HTTPException(status_code=500, detail=f"Could not launch PyMOL: {error}") from error
 
-    if not candidate.is_file():
-        raise HTTPException(status_code=404, detail="Project file not found.")
-    return FileResponse(candidate)
+    return {"status": "launched", "file": request.relative_path}
 
 
 @app.post("/api/projects/{slug}/designs/{design_id}/evidence")
