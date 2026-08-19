@@ -120,6 +120,7 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
       setScanRows(payload.results as ScanRow[]);
       setScanPath(payload.file_path as string);
       onUpdated(payload.project as ProjectDetail);
+      setMessage("Position scan archived as computational evidence.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Position scan failed.");
     } finally { setScanBusy(false); }
@@ -141,10 +142,11 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
           hypothesis, objective, design_name: designName || null,
         }),
       }));
-      setCandidateId(payload.candidate_design_id as string);
+      const newId = payload.candidate_design_id as string;
+      setCandidateId(newId);
       setEvaluation(payload.evaluation as Evaluation);
       onUpdated(payload.project as ProjectDetail);
-      setMessage("Candidate archived. Inspect the score, then record your decision.");
+      setMessage("New child design created in the design map automatically. Inspect the score below, then Accept, Defer, or Reject it.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Mutation evaluation failed.");
     } finally { setMutationBusy(false); }
@@ -161,7 +163,7 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
       }));
       onUpdated(payload.project as ProjectDetail);
       onSelectNew(candidateId);
-      setMessage(`${evaluation?.mutation ?? "Candidate"} recorded as ${outcome}.`);
+      setMessage(`${evaluation?.mutation ?? "Candidate"} recorded as ${outcome}. Its child node is now selected in the design map.`);
       setCandidateId(null); setEvaluation(null); setRationale("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not record decision.");
@@ -175,19 +177,20 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
     {!hasStructure && <p className="form-error">Attach a structure to this design before running PyRosetta.</p>}
 
     <div className="baseline-score-bar"><div><p className="eyebrow">1 · Baseline structure</p><b>Score the currently attached structure</b><p>Useful before mutations: establishes the Rosetta energy of the model you are actually evaluating. This does not modify the design.</p></div><button className="secondary-button" type="button" disabled={!hasStructure || scoreBusy} onClick={scoreStructure}>{scoreBusy ? "Scoring…" : "Score current structure"}</button></div>
-    {structureScore && <div className="baseline-score-result"><div className="score-grid"><div><span>Total score</span><b>{structureScore.total_score.toFixed(2)} REU</b></div><div><span>Structure residues</span><b>{structureScore.residue_count}</b></div><div><span>Structure</span><b className="mono">{structureScore.structure_file}</b></div></div>{structureScore.sequence_warning && <div className="compatibility-warning"><b>Structure does not match this design</b><p>{structureScore.sequence_warning}</p><span>Scoring is still valid for the PDB itself, but mutation design is disabled until you attach the matching structure.</span></div>}{scoreTerms.length > 0 && <div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Term</th><th>Weighted score</th></tr></thead><tbody>{scoreTerms.map(([term, value]) => <tr key={term}><td className="mono">{term}</td><td>{Number(value).toFixed(3)}</td></tr>)}</tbody></table></div>}</div>}
+    {structureScore && <div className="baseline-score-result"><div className="score-grid"><div><span>Total score</span><b>{structureScore.total_score.toFixed(2)} REU</b></div><div><span>Structure residues</span><b>{structureScore.residue_count}</b></div><div><span>Structure</span><b className="mono">{structureScore.structure_file}</b></div></div>{structureScore.sequence_warning && <div className="compatibility-warning"><b>Structure does not match this design</b><p>{structureScore.sequence_warning}</p><span>Scoring is still valid for the structure itself, but mutation design is disabled until you attach the matching model.</span></div>}{scoreTerms.length > 0 && <div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Term</th><th>Weighted score</th></tr></thead><tbody>{scoreTerms.map(([term, value]) => <tr key={term}><td className="mono">{term}</td><td>{Number(value).toFixed(3)}</td></tr>)}</tbody></table></div>}</div>}
 
     <div className="workbench-grid">
       <form className="tool-card mutation-tool-card" onSubmit={evaluateMutation}>
         <div className="tool-card-heading"><p className="eyebrow">2 · Human-guided mutation</p><h4>Evaluate one substitution</h4><p>Use this when you already have a specific mutation in mind. HGD creates a child candidate, locally repacks/minimizes around the mutation, compares Rosetta energies, and waits for your Accept / Defer / Reject decision.</p></div>
         <div className="three-col-form guided-fields">
           <label>Position<input type="number" min="1" max={maxPosition} value={position} onChange={(e) => setPosition(e.target.value)} required /><small className="field-help">Residue number in this design{currentResidue ? ` · currently ${currentResidue}${position}` : ""}.</small></label>
-          <label>Mutate to<select className="mono" value={mutantAa} onChange={(e) => setMutantAa(e.target.value)}>{AMINO_ACIDS.map(([code, name]) => <option key={code} value={code}>{code} — {name}</option>)}</select><small className="field-help">Choose the new amino acid. The current residue is excluded logically at evaluation time.</small></label>
+          <label>Mutate to<select className="mono" value={mutantAa} onChange={(e) => setMutantAa(e.target.value)}>{AMINO_ACIDS.map(([code, name]) => <option key={code} value={code}>{code} — {name}</option>)}</select><small className="field-help">Choose the new amino acid. HGD rejects an unchanged residue.</small></label>
           <label>Local radius (Å)<input type="number" min="1" step="0.5" value={radius} onChange={(e) => setRadius(e.target.value)} /><small className="field-help">Residues within this distance can repack. 8 Å is the default local environment.</small></label>
         </div>
-        <label>Hypothesis<textarea value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} placeholder="Example: replacing Leu with Trp may improve hydrophobic packing in this core." /><small className="field-help">Write what you expect the mutation to change before seeing the score. This becomes part of provenance.</small></label>
-        <label>Objective<textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Example: improve local stability without disrupting the beta sheet." /><small className="field-help">The broader property or question you are trying to improve/test.</small></label>
-        <label>Candidate name <span className="optional-label">optional</span><input value={designName} onChange={(e) => setDesignName(e.target.value)} placeholder={currentResidue ? `${currentResidue}${position}${mutantAa}` : "Short human-readable label"} /><small className="field-help">Only for readability in the design tree. The mutation itself is stored separately.</small></label>
+        <label>Hypothesis<textarea value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} placeholder="Example: replacing Leu with Trp may improve hydrophobic packing in this core." /><small className="field-help">Write what you expect before seeing the score. This becomes part of provenance.</small></label>
+        <label>Objective<textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Example: improve local stability without disrupting the beta sheet." /><small className="field-help">The broader property or question you are trying to improve or test.</small></label>
+        <label>Candidate name <span className="optional-label">optional</span><input value={designName} onChange={(e) => setDesignName(e.target.value)} placeholder={currentResidue ? `${currentResidue}${position}${mutantAa}` : "Short human-readable label"} /><small className="field-help">Only for readability in the design tree; the mutation is stored independently.</small></label>
+        <div className="scan-explainer"><b>What happens after Evaluate</b><span>HGD creates a new child node automatically. The parent design is never overwritten.</span></div>
         <button className="primary-button" disabled={!hasStructure || mutationBusy}>{mutationBusy ? "Running PyRosetta…" : "Evaluate mutation"}</button>
         {evaluation && <div className="evaluation-result">
           <div className="score-grid"><div><span>Mutation</span><b className="mono">{evaluation.mutation}</b></div><div><span>Parent</span><b>{evaluation.previous_score.toFixed(2)}</b></div><div><span>Mutant</span><b>{evaluation.mutant_score.toFixed(2)}</b></div><div><span>ΔScore</span><b className={evaluation.delta_score <= 0 ? "score-good" : "score-bad"}>{evaluation.delta_score >= 0 ? "+" : ""}{evaluation.delta_score.toFixed(2)} REU</b></div></div>
@@ -208,57 +211,26 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   </section>;
 }
 
-export function DecisionRecorder({ slug, design, onUpdated }: {
-  slug: string;
-  design: DesignNode;
-  onUpdated: (project: ProjectDetail) => void;
-}) {
-  const [rationale, setRationale] = useState("");
-  const [userNote, setUserNote] = useState("");
+export function ProjectExportTools({ slug }: { slug: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [contextPath, setContextPath] = useState<string | null>(null);
 
-  if (!design.parent_design_id) return null;
-
-  async function record(outcome: "accepted" | "rejected" | "deferred") {
+  async function exportContext() {
     setBusy(true); setMessage(null);
     try {
-      const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/designs/${encodeURIComponent(design.id)}/decision`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ outcome, rationale, user_note: userNote || null }),
-      }));
-      onUpdated(payload.project as ProjectDetail);
-      setRationale(""); setUserNote("");
-      setMessage(`New ${outcome} decision appended to the scientific record.`);
+      const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/export/context`, { method: "POST" }));
+      const path = payload.file_path as string;
+      setContextPath(path);
+      setMessage("LLM-ready project context updated from the current archive.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not record decision.");
+      setMessage(error instanceof Error ? error.message : "Context export failed.");
     } finally { setBusy(false); }
   }
 
-  return <section className="detail-card decision-recorder"><div className="detail-card-header"><div><p className="eyebrow">Revisit candidate</p><h3>Record a new decision</h3></div><span>append-only</span></div><p className="muted">Use this after new computational, literature, or experimental evidence changes your assessment. Earlier decisions remain visible above.</p><label>Rationale<textarea value={rationale} onChange={(e) => setRationale(e.target.value)} placeholder="What evidence or reasoning supports this decision now?" /></label><label>User note <span className="optional-label">optional</span><textarea value={userNote} onChange={(e) => setUserNote(e.target.value)} /></label><div className="decision-actions"><button className="primary-button" disabled={busy} onClick={() => record("accepted")}>Accept</button><button className="secondary-button" disabled={busy} onClick={() => record("deferred")}>Defer</button><button className="danger-button" disabled={busy} onClick={() => record("rejected")}>Reject</button></div>{message && <p className="form-message">{message}</p>}</section>;
-}
-
-export function ProjectExportTools({ slug }: { slug: string }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [summaryPath, setSummaryPath] = useState<string | null>(null);
-
-  async function run(kind: "summary" | "obsidian") {
-    setBusy(kind); setMessage(null);
-    try {
-      const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/export/${kind}`, { method: "POST" }));
-      if (kind === "summary") {
-        const path = payload.file_path as string;
-        setSummaryPath(path);
-        setMessage("Project summary updated.");
-      } else {
-        setMessage(`Obsidian export updated: ${payload.files?.length ?? 0} Markdown file(s).`);
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Export failed.");
-    } finally { setBusy(null); }
-  }
-
-  return <div className="project-export-tools"><button className="secondary-button" onClick={() => run("summary")} disabled={busy !== null}>{busy === "summary" ? "Generating…" : "Project summary"}</button><button className="secondary-button" onClick={() => run("obsidian")} disabled={busy !== null}>{busy === "obsidian" ? "Exporting…" : "Export Obsidian"}</button>{summaryPath && <a className="mini-button" href={localFileUrl(slug, summaryPath)} target="_blank" rel="noreferrer">Open summary ↗</a>}{message && <span className="tool-inline-message">{message}</span>}</div>;
+  return <div className="project-export-tools">
+    <button className="secondary-button" onClick={exportContext} disabled={busy}>{busy ? "Exporting…" : "Export context for LLM (.md)"}</button>
+    {contextPath && <a className="mini-button" href={localFileUrl(slug, contextPath)} target="_blank" rel="noreferrer">Open Markdown ↗</a>}
+    {message && <span className="tool-inline-message">{message}</span>}
+  </div>;
 }
