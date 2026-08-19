@@ -22,6 +22,13 @@ type Evaluation = {
   delta_score_terms?: Record<string, number>;
 };
 
+type StructureScore = {
+  total_score: number;
+  residue_count: number;
+  structure_file: string;
+  score_terms: Record<string, number>;
+};
+
 async function responseJson(response: Response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail ?? "Request failed.");
@@ -46,6 +53,8 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   const [designName, setDesignName] = useState("");
   const [scanBusy, setScanBusy] = useState(false);
   const [mutationBusy, setMutationBusy] = useState(false);
+  const [scoreBusy, setScoreBusy] = useState(false);
+  const [structureScore, setStructureScore] = useState<StructureScore | null>(null);
   const [scanRows, setScanRows] = useState<ScanRow[]>([]);
   const [scanPath, setScanPath] = useState<string | null>(null);
   const [candidateId, setCandidateId] = useState<string | null>(null);
@@ -55,6 +64,19 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
 
   const hasStructure = design.structures.length > 0 || Boolean(design.structure_path);
   const maxPosition = design.sequence?.length ?? undefined;
+
+  async function scoreStructure() {
+    setScoreBusy(true); setMessage(null); setStructureScore(null);
+    try {
+      const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/designs/${encodeURIComponent(design.id)}/score-structure`, { method: "POST" }));
+      const data = (payload.evidence?.data ?? {}) as StructureScore;
+      setStructureScore(data);
+      onUpdated(payload.project as ProjectDetail);
+      setMessage("Current structure score archived as computational evidence.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Structure scoring failed.");
+    } finally { setScoreBusy(false); }
+  }
 
   function useScanCandidate(row: ScanRow) {
     setPosition(String(row.position));
@@ -120,9 +142,13 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
     } finally { setMutationBusy(false); }
   }
 
+  const scoreTerms = structureScore?.score_terms ? Object.entries(structureScore.score_terms) : [];
+
   return <section className="detail-card wide-section scientific-workbench">
     <div className="detail-card-header"><div><p className="eyebrow">PyRosetta design tools</p><h3>Mutation workbench</h3></div><span>local repack + minimization · {radius || "8"} Å</span></div>
     {!hasStructure && <p className="form-error">Attach a structure to this design before running PyRosetta.</p>}
+    <div className="baseline-score-bar"><div><p className="eyebrow">Baseline</p><b>Score the current structure before proposing changes</b></div><button className="secondary-button" type="button" disabled={!hasStructure || scoreBusy} onClick={scoreStructure}>{scoreBusy ? "Scoring…" : "Score current structure"}</button></div>
+    {structureScore && <div className="baseline-score-result"><div className="score-grid"><div><span>Total score</span><b>{structureScore.total_score.toFixed(2)} REU</b></div><div><span>Residues</span><b>{structureScore.residue_count}</b></div><div><span>Structure</span><b className="mono">{structureScore.structure_file}</b></div></div>{scoreTerms.length > 0 && <div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Term</th><th>Weighted score</th></tr></thead><tbody>{scoreTerms.map(([term, value]) => <tr key={term}><td className="mono">{term}</td><td>{Number(value).toFixed(3)}</td></tr>)}</tbody></table></div>}</div>}
     <div className="workbench-grid">
       <form className="tool-card" onSubmit={evaluateMutation}>
         <div><p className="eyebrow">Human-guided mutation</p><h4>Evaluate one substitution</h4></div>
