@@ -53,6 +53,9 @@ export default function DesignDeleteControl({
         ?? project.design_tree[0]?.id
         ?? "";
       onSelectNew(nextId);
+      // Deletion is initiated from the full scientific record. Return to the
+      // main design-map workspace instead of silently opening another record.
+      window.dispatchEvent(new Event("hgd:design-deleted"));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not delete design.");
     } finally {
