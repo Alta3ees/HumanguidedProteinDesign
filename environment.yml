@@ -6,12 +6,18 @@ dependencies:
   - python=3.11
   - pip
   - nodejs>=20
-  - pymol-open-source
   - pip:
       - -e .[web]
 
-# PyRosetta is intentionally not listed here because its distribution/install
-# mechanism is separate from normal conda-forge/PyPI packaging. Install the
-# PyRosetta build appropriate for your platform into this environment, then
-# verify with:
+# PyMOL is intentionally optional.
+# HGD uses whichever local PyMOL executable the scientist already has,
+# including licensed Incentive PyMOL or open-source PyMOL.
+# If no PyMOL is installed, one free option is:
+#   conda install -c conda-forge pymol-open-source
+# Licensed PyMOL users can install/use their Schrödinger distribution instead.
+#
+# PyRosetta is also intentionally not listed here because its distribution and
+# installation mechanism is separate from normal conda-forge/PyPI packaging.
+# Install the PyRosetta build appropriate for your platform into this
+# environment, then verify with:
 #   python -c "import pyrosetta; print(pyrosetta.__version__)"
