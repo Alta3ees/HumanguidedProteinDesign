@@ -186,10 +186,22 @@ def main() -> None:
     """Build the UI if needed, then start the complete local HGD workspace."""
     try:
         import uvicorn
+        from fastapi.staticfiles import StaticFiles
+        from human_protein_design.web.api import app
     except ImportError as error:
         raise SystemExit('Install the web dependencies first: python -m pip install -e ".[web]"') from error
 
-    ensure_frontend_build()
+    frontend_dist = ensure_frontend_build()
+
+    # API routes are already registered on ``app``. Mounting the compiled React
+    # application afterwards makes it the fallback for normal browser requests
+    # while /api/... keeps using the FastAPI endpoints above it.
+    if not any(getattr(route, "name", None) == "hgd-frontend" for route in app.routes):
+        app.mount(
+            "/",
+            StaticFiles(directory=str(frontend_dist), html=True),
+            name="hgd-frontend",
+        )
 
     pymol = prepare_pymol_for_backend()
     if pymol:
@@ -210,12 +222,7 @@ def main() -> None:
     if os.environ.get("HGD_NO_BROWSER", "").lower() not in {"1", "true", "yes"}:
         threading.Timer(1.0, _open_browser, args=(url,)).start()
 
-    uvicorn.run(
-        "human_protein_design.web.api:app",
-        host=host,
-        port=port,
-        reload=False,
-    )
+    uvicorn.run(app, host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":
