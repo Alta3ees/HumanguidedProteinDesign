@@ -13,15 +13,13 @@ from human_protein_design.cli import (
     choose_project,
 )
 from human_protein_design.context import MutationContext
+from human_protein_design.fasta import validate_amino_acid
 from human_protein_design.interpretation import interpret_energy_changes
 from human_protein_design.scoring import (
     get_standard_score_function,
     initialize_pyrosetta,
 )
 from human_protein_design.session import DesignSession
-
-
-VALID_AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
 
 
 def print_result(result, analysis: MutationAnalysis, context: MutationContext) -> None:
@@ -124,12 +122,11 @@ def choose_starting_design(project: DesignProject):
 def ask_mutant_aa(position: int, current_aa: str) -> str:
     """Ask until a valid single-letter mutation is entered."""
     while True:
-        mutant_aa = ask_text("Mutate to").upper()
-        if len(mutant_aa) != 1:
-            print("Enter a single amino-acid code (e.g. A, W, K).")
-            continue
-        if mutant_aa not in VALID_AMINO_ACIDS:
-            print(f"'{mutant_aa}' is not a valid standard amino-acid code.")
+        raw = ask_text("Mutate to")
+        try:
+            mutant_aa = validate_amino_acid(raw)
+        except ValueError as error:
+            print(error)
             continue
         if mutant_aa == current_aa:
             print(f"Residue {position} is already {current_aa}. Choose a different amino acid.")
