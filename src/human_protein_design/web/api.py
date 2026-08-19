@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -297,7 +298,7 @@ def open_project_file(slug: str, relative_path: str) -> FileResponse:
 
 @app.post("/api/projects/{slug}/launch-pymol")
 def launch_pymol(slug: str, request: LaunchPyMOLRequest) -> dict[str, str]:
-    """Launch the active environment's local PyMOL GUI for a project file."""
+    """Launch local PyMOL and report immediate startup failures instead of guessing."""
     structure_path = _project_file(slug, request.relative_path)
     suffix = structure_path.suffix.lower()
     if suffix not in {".pdb", ".ent", ".cif", ".mmcif", ".pqr"}:
@@ -313,18 +314,46 @@ def launch_pymol(slug: str, request: LaunchPyMOLRequest) -> dict[str, str]:
             ),
         )
 
+    project_path = _project_dir(slug).resolve()
+    runtime_dir = project_path / ".hgd"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    log_path = runtime_dir / "pymol-launch.log"
+
     try:
-        subprocess.Popen(
-            [pymol_executable, str(structure_path)],
-            cwd=str(structure_path.parent),
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        with log_path.open("w", encoding="utf-8") as log_handle:
+            process = subprocess.Popen(
+                [pymol_executable, str(structure_path)],
+                cwd=str(structure_path.parent),
+                start_new_session=True,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        time.sleep(1.0)
     except OSError as error:
         raise HTTPException(status_code=500, detail=f"Could not launch PyMOL: {error}") from error
 
-    return {"status": "launched", "file": request.relative_path}
+    return_code = process.poll()
+    if return_code not in {None, 0}:
+        try:
+            diagnostic = log_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            diagnostic = ""
+        if diagnostic:
+            diagnostic = diagnostic[-3000:]
+        else:
+            diagnostic = f"PyMOL exited immediately with code {return_code}."
+        raise HTTPException(
+            status_code=500,
+            detail=f"PyMOL failed to start. {diagnostic}",
+        )
+
+    status = "running" if return_code is None else "launcher_exited"
+    return {
+        "status": status,
+        "file": request.relative_path,
+        "log": str(log_path.relative_to(project_path)),
+    }
 
 
 @app.post("/api/projects/{slug}/designs/{design_id}/evidence")
