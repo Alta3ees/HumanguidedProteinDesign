@@ -100,6 +100,36 @@ def test_attach_structure_from_web(tmp_path, monkeypatch):
     assert (projects_root / "demo" / "structures" / "model.pdb").is_file()
 
 
+def test_delete_structure_removes_local_file_and_preserves_provenance(tmp_path, monkeypatch):
+    projects_root = tmp_path / "projects"
+    _, root = make_project(projects_root)
+    monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
+    client = TestClient(api.app)
+
+    attached = client.post(
+        f"/api/projects/demo/designs/{root.id}/structures",
+        data={"source": "alphafold", "method": "AF test"},
+        files={"file": ("model.pdb", b"HEADER TEST\nEND\n", "chemical/x-pdb")},
+    )
+    assert attached.status_code == 200
+    structure_id = attached.json()["structure"]["id"]
+    structure_file = projects_root / "demo" / "structures" / "model.pdb"
+    assert structure_file.is_file()
+
+    response = client.delete(f"/api/projects/demo/structures/{structure_id}")
+    assert response.status_code == 200
+    assert not structure_file.exists()
+    assert response.json()["project"]["counts"]["structures"] == 0
+
+    reloaded = DesignProject.load(name="demo", root_dir=projects_root / "demo")
+    assert structure_id not in reloaded.archive.structures
+    assert len(reloaded.archive.evidence) == 1
+    provenance = next(iter(reloaded.archive.evidence.values()))
+    assert provenance.structure_id is None
+    assert provenance.data["structure_removed"] is True
+    assert provenance.data["removed_structure_id"] == structure_id
+
+
 def test_delete_imported_evidence_removes_evidence_file(tmp_path, monkeypatch):
     projects_root = tmp_path / "projects"
     project, root = make_project(projects_root)
