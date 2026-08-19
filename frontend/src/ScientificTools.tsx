@@ -211,6 +211,17 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   </section>;
 }
 
+// The old standalone decision form is intentionally gone. Keep this no-op
+// export temporarily so older workspace code can render it without creating a
+// second decision UI; decisions are made directly after mutation evaluation.
+export function DecisionRecorder(_props: {
+  slug: string;
+  design: DesignNode;
+  onUpdated: (project: ProjectDetail) => void;
+}) {
+  return null;
+}
+
 export function ProjectExportTools({ slug }: { slug: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
