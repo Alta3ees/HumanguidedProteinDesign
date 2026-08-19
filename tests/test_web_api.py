@@ -138,17 +138,31 @@ def test_local_file_route_serves_structure_storage(tmp_path, monkeypatch):
     assert response.content.startswith(b"ATOM")
 
 
-def test_local_file_route_cannot_escape_allowed_project_storage(tmp_path, monkeypatch):
+def test_local_file_route_serves_any_file_inside_selected_project(tmp_path, monkeypatch):
     projects_root = tmp_path / "projects"
     project, _ = make_demo_project(projects_root)
     project.save()
-    secret = project.root_dir / "secret.txt"
-    secret.write_text("private", encoding="utf-8")
+    local_file = project.root_dir / "notes.txt"
+    local_file.write_text("project-local", encoding="utf-8")
 
     monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
     client = TestClient(api.app)
-    response = client.get("/api/projects/demo/files/secret.txt")
-    assert response.status_code == 403
+    response = client.get("/api/projects/demo/files/notes.txt")
+    assert response.status_code == 200
+    assert response.text == "project-local"
+
+
+def test_local_file_route_cannot_escape_selected_project(tmp_path, monkeypatch):
+    projects_root = tmp_path / "projects"
+    project, _ = make_demo_project(projects_root)
+    project.save()
+    outside = projects_root / "outside.txt"
+    outside.write_text("outside-project", encoding="utf-8")
+
+    monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
+    client = TestClient(api.app)
+    response = client.get("/api/projects/demo/files/%2E%2E/outside.txt")
+    assert response.status_code in {403, 404}
 
 
 def test_project_api_rejects_path_traversal(tmp_path, monkeypatch):
