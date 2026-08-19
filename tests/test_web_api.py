@@ -123,7 +123,22 @@ def test_quick_attach_derives_metadata_and_file_can_be_opened(tmp_path, monkeypa
     assert opened.content == b"local-pdf-bytes"
 
 
-def test_local_file_route_cannot_escape_evidence_directory(tmp_path, monkeypatch):
+def test_local_file_route_serves_structure_storage(tmp_path, monkeypatch):
+    projects_root = tmp_path / "projects"
+    project, _ = make_demo_project(projects_root)
+    project.structures_dir.mkdir(parents=True, exist_ok=True)
+    structure_path = project.structures_dir / "model.pdb"
+    structure_path.write_text("ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n", encoding="utf-8")
+    project.save()
+
+    monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
+    client = TestClient(api.app)
+    response = client.get("/api/projects/demo/files/structures/model.pdb")
+    assert response.status_code == 200
+    assert response.content.startswith(b"ATOM")
+
+
+def test_local_file_route_cannot_escape_allowed_project_storage(tmp_path, monkeypatch):
     projects_root = tmp_path / "projects"
     project, _ = make_demo_project(projects_root)
     project.save()
