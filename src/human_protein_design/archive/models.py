@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
+from human_protein_design.fasta import normalize_sequence
+
 
 DecisionOutcome = Literal["accepted", "rejected", "deferred"]
 
@@ -84,6 +86,10 @@ class Target:
 
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.sequence is not None:
+            self.sequence = normalize_sequence(self.sequence)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -152,8 +158,7 @@ class Design:
 
     def __post_init__(self) -> None:
         if self.sequence is not None:
-            normalized = "".join(self.sequence.split()).upper()
-            self.sequence = normalized or None
+            self.sequence = normalize_sequence(self.sequence)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
