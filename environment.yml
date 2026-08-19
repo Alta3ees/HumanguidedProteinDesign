@@ -12,6 +12,10 @@ dependencies:
   # Core scientific evaluator
   - pyrosetta
 
+  # Default local structure viewer
+  # Licensed Incentive PyMOL users can override this executable with HGD_PYMOL.
+  - pymol-open-source
+
   # Frontend development/build
   - nodejs>=20
 
@@ -19,12 +23,17 @@ dependencies:
   - pip:
       - -e .[web,dev]
 
-# PyMOL is intentionally NOT pinned here.
-# HGD discovers and uses the scientist's existing local PyMOL installation,
-# whether licensed Incentive PyMOL or open-source PyMOL. If none is installed,
-# one free option is:
-#   conda install -c conda-forge pymol-open-source
-# A specific executable can be selected with HGD_PYMOL.
+# PyMOL policy
+# ------------
+# The default environment includes open-source PyMOL so the structure-viewer
+# button works immediately after environment creation. Scientists who already
+# have licensed Incentive PyMOL can point HGD to that executable instead:
+#
+#   Linux/macOS: export HGD_PYMOL=/absolute/path/to/pymol
+#   Windows/WSL: export HGD_PYMOL=/path/to/the/desired/pymol
+#
+# HGD does not inspect or manage PyMOL licensing; it simply launches the
+# configured/discovered executable.
 #
 # Full HGD support targets:
 #   Linux   - native
