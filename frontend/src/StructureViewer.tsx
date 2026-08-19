@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Stage } from "ngl";
+import type { Component } from "ngl";
 import type { StructureModel } from "./types";
 import "./structure-viewer.css";
 
@@ -21,7 +22,7 @@ export default function StructureViewer({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
-  const componentRef = useRef<any>(null);
+  const componentRef = useRef<Component | null>(null);
   const [selectedId, setSelectedId] = useState(structures[0]?.id ?? "");
   const [representation, setRepresentation] = useState<RepresentationMode>("cartoon");
   const [loading, setLoading] = useState(false);
@@ -65,8 +66,13 @@ export default function StructureViewer({
 
     stage
       .loadFile(localFileUrl(slug, selected.structure_path), { defaultRepresentation: false })
-      .then((component) => {
+      .then((loaded) => {
         if (cancelled) return;
+        if (!loaded) {
+          throw new Error("NGL did not return a structure component.");
+        }
+
+        const component = loaded as Component;
         componentRef.current = component;
         component.addRepresentation(representation, {
           colorScheme: representation === "surface" ? "hydrophobicity" : "chainname",
