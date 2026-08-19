@@ -2,7 +2,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from human_protein_design.archive import Design, DesignProject, EvidenceEntry, ProjectObjective
+from human_protein_design.archive import Decision, Design, DesignProject, EvidenceEntry, ProjectObjective
 from human_protein_design.web import api
 from human_protein_design.web.file_preview import preview_file
 
@@ -83,6 +83,73 @@ def test_project_summary_and_obsidian_exports_are_web_actions(tmp_path, monkeypa
     assert obsidian.status_code == 200
     assert obsidian.json()["files"]
     assert (project.root_dir / obsidian.json()["output_dir"]).is_dir()
+
+
+def test_score_structure_route_archives_scientific_result(tmp_path, monkeypatch):
+    projects_root = tmp_path / "projects"
+    project, design = make_project(projects_root)
+    evidence = EvidenceEntry(
+        source_type="computational",
+        source_name="PyRosetta structure score",
+        summary="baseline",
+        design_id=design.id,
+        data={"analysis_type": "structure_score", "total_score": -12.3},
+    )
+
+    def fake_score(project_arg, *, design_id):
+        assert project_arg.root_dir == project.root_dir
+        assert design_id == design.id
+        project_arg.archive.add_evidence(evidence)
+        project_arg.save()
+        return evidence
+
+    monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
+    monkeypatch.setattr(api, "score_current_structure", fake_score)
+    client = TestClient(api.app)
+    response = client.post(f"/api/projects/demo/designs/{design.id}/score-structure")
+    assert response.status_code == 200
+    assert response.json()["evidence"]["data"]["total_score"] == -12.3
+    assert response.json()["project"]["counts"]["evidence"] == 1
+
+
+def test_project_payload_exposes_complete_decision_history(tmp_path, monkeypatch):
+    projects_root = tmp_path / "projects"
+    project, parent = make_project(projects_root)
+    child = Design(
+        name="candidate",
+        sequence="ACDEWG",
+        origin="point_mutation",
+        parent_design_id=parent.id,
+        objective_id=parent.objective_id,
+    )
+    project.archive.add_design(child)
+    first = Decision(
+        parent_design_id=parent.id,
+        candidate_design_id=child.id,
+        outcome="deferred",
+        hypothesis="Need more evidence",
+        objective="stability",
+        rationale="Wait for experiment",
+    )
+    second = Decision(
+        parent_design_id=parent.id,
+        candidate_design_id=child.id,
+        outcome="accepted",
+        hypothesis="Supported by later evidence",
+        objective="stability",
+        rationale="Follow-up evidence was positive",
+    )
+    project.archive.add_decision(first)
+    project.archive.add_decision(second)
+    project.save()
+
+    monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
+    client = TestClient(api.app)
+    response = client.get("/api/projects/demo")
+    assert response.status_code == 200
+    child_payload = response.json()["design_tree"][0]["children"][0]
+    assert [item["outcome"] for item in child_payload["decisions"]] == ["deferred", "accepted"]
+    assert child_payload["decision"]["outcome"] == "accepted"
 
 
 def test_position_scan_route_returns_ranking_without_embedding_science_in_route(tmp_path, monkeypatch):
