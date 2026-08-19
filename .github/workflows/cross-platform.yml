@@ -26,16 +26,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python workspace dependencies
-        run: python -m pip install -e ".[web]" pytest
+        run: python -m pip install -e ".[web,dev]"
 
-      - name: Test structure-independent workspace
-        run: >-
-          python -m pytest -q
-          tests/test_archive_v035.py
-          tests/test_web_actions.py
-          tests/test_web_api.py
-          tests/test_pymol_launcher.py
-          tests/test_workspace_launcher.py
+      - name: Run full Python test suite
+        run: python -m pytest -q
 
       - name: Set up Node
         uses: actions/setup-node@v4
