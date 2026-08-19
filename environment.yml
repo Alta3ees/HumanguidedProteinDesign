@@ -1,0 +1,17 @@
+name: human-guided-protein-design
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - nodejs>=20
+  - pymol-open-source
+  - pip:
+      - -e .[web]
+
+# PyRosetta is intentionally not listed here because its distribution/install
+# mechanism is separate from normal conda-forge/PyPI packaging. Install the
+# PyRosetta build appropriate for your platform into this environment, then
+# verify with:
+#   python -c "import pyrosetta; print(pyrosetta.__version__)"
