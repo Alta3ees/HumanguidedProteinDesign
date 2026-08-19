@@ -50,6 +50,7 @@ export type DesignNode = {
   label: string;
   lineage_label: string;
   sequence?: string | null;
+  structure_path?: string | null;
   status: string;
   origin: string;
   hypothesis?: string | null;
