@@ -28,6 +28,10 @@ async function responseJson(response: Response) {
   return payload;
 }
 
+function localFileUrl(slug: string, path: string) {
+  return `/api/projects/${encodeURIComponent(slug)}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   slug: string;
   design: DesignNode;
@@ -49,7 +53,7 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   const [rationale, setRationale] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
-  const hasStructure = design.structures.length > 0 || Boolean(design.metadata?.structure_path);
+  const hasStructure = design.structures.length > 0 || Boolean(design.structure_path);
   const maxPosition = design.sequence?.length ?? undefined;
 
   function useScanCandidate(row: ScanRow) {
@@ -143,7 +147,7 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
         <p className="muted">Runs all 19 possible substitutions at one position using the same local PyRosetta preparation protocol, ranks them by ΔScore, and archives the result as computational evidence.</p>
         <div className="two-col-form"><label>Position<input type="number" min="1" max={maxPosition} value={position} onChange={(e) => setPosition(e.target.value)} required /></label><label>Radius (Å)<input type="number" min="1" step="0.5" value={radius} onChange={(e) => setRadius(e.target.value)} /></label></div>
         <button className="secondary-button" disabled={!hasStructure || scanBusy}>{scanBusy ? "Scanning 19 substitutions…" : "Scan all substitutions"}</button>
-        {scanRows.length > 0 && <div className="scan-results"><div className="scan-result-header"><b>{scanRows.length} substitutions ranked</b>{scanPath && <span className="mono">{scanPath}</span>}</div><div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Rank</th><th>Mutation</th><th>Total score</th><th>ΔScore</th><th /></tr></thead><tbody>{scanRows.map((row, index) => <tr key={row.mutation}><td>{index + 1}</td><td className="mono">{row.mutation}</td><td>{Number(row.total_score).toFixed(3)}</td><td className={Number(row.delta_score) <= 0 ? "score-good" : "score-bad"}>{Number(row.delta_score) >= 0 ? "+" : ""}{Number(row.delta_score).toFixed(3)}</td><td><button type="button" className="mini-button" onClick={() => useScanCandidate(row)}>Evaluate</button></td></tr>)}</tbody></table></div></div>}
+        {scanRows.length > 0 && <div className="scan-results"><div className="scan-result-header"><b>{scanRows.length} substitutions ranked</b>{scanPath && <a className="mono" href={localFileUrl(slug, scanPath)} target="_blank" rel="noreferrer">CSV ↗</a>}</div><div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Rank</th><th>Mutation</th><th>Total score</th><th>ΔScore</th><th /></tr></thead><tbody>{scanRows.map((row, index) => <tr key={row.mutation}><td>{index + 1}</td><td className="mono">{row.mutation}</td><td>{Number(row.total_score).toFixed(3)}</td><td className={Number(row.delta_score) <= 0 ? "score-good" : "score-bad"}>{Number(row.delta_score) >= 0 ? "+" : ""}{Number(row.delta_score).toFixed(3)}</td><td><button type="button" className="mini-button" onClick={() => useScanCandidate(row)}>Evaluate</button></td></tr>)}</tbody></table></div></div>}
       </form>
     </div>
     {message && <p className="form-message">{message}</p>}
@@ -153,6 +157,7 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
 export function ProjectExportTools({ slug }: { slug: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [summaryPath, setSummaryPath] = useState<string | null>(null);
 
   async function run(kind: "summary" | "obsidian") {
     setBusy(kind); setMessage(null);
@@ -160,8 +165,8 @@ export function ProjectExportTools({ slug }: { slug: string }) {
       const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/export/${kind}`, { method: "POST" }));
       if (kind === "summary") {
         const path = payload.file_path as string;
-        setMessage(`Project summary updated: ${path}`);
-        window.open(`/api/projects/${encodeURIComponent(slug)}/files/${path.split("/").map(encodeURIComponent).join("/")}`, "_blank");
+        setSummaryPath(path);
+        setMessage("Project summary updated.");
       } else {
         setMessage(`Obsidian export updated: ${payload.files?.length ?? 0} Markdown file(s).`);
       }
@@ -170,5 +175,5 @@ export function ProjectExportTools({ slug }: { slug: string }) {
     } finally { setBusy(null); }
   }
 
-  return <div className="project-export-tools"><button className="secondary-button" onClick={() => run("summary")} disabled={busy !== null}>{busy === "summary" ? "Generating…" : "Project summary"}</button><button className="secondary-button" onClick={() => run("obsidian")} disabled={busy !== null}>{busy === "obsidian" ? "Exporting…" : "Export Obsidian"}</button>{message && <span className="tool-inline-message">{message}</span>}</div>;
+  return <div className="project-export-tools"><button className="secondary-button" onClick={() => run("summary")} disabled={busy !== null}>{busy === "summary" ? "Generating…" : "Project summary"}</button><button className="secondary-button" onClick={() => run("obsidian")} disabled={busy !== null}>{busy === "obsidian" ? "Exporting…" : "Export Obsidian"}</button>{summaryPath && <a className="mini-button" href={localFileUrl(slug, summaryPath)} target="_blank" rel="noreferrer">Open summary ↗</a>}{message && <span className="tool-inline-message">{message}</span>}</div>;
 }
