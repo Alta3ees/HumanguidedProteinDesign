@@ -188,15 +188,10 @@ def main() -> None:
         import uvicorn
         from fastapi.staticfiles import StaticFiles
         from human_protein_design.web.api import app
-        from human_protein_design.web.design_routes import router as design_router
     except ImportError as error:
         raise SystemExit('Install the web dependencies first: python -m pip install -e ".[web]"') from error
 
     frontend_dist = ensure_frontend_build()
-
-    # Register small extension routers before mounting React as the catch-all.
-    if not any(getattr(route, "path", None) == "/api/projects/{slug}/designs/{design_id}" and "DELETE" in getattr(route, "methods", set()) for route in app.routes):
-        app.include_router(design_router)
 
     # API routes are already registered on ``app``. Mounting the compiled React
     # application afterwards makes it the fallback for normal browser requests
