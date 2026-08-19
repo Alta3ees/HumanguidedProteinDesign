@@ -1,12 +1,12 @@
 # Human-Guided Protein Design
 
-**Human-Guided Protein Design (HGD)** is a local-first scientific workspace for iterative protein design with PyRosetta, explicit human decisions, persistent lineage, structures, and long-term evidence provenance.
+**Human-Guided Protein Design (HGD)** is a 100% local, interactive research workspace for protein design scientists. It combines PyRosetta-guided mutation design, structural inspection, human decisions, experimental evidence, and long-term scientific provenance in one persistent project archive.
 
-The human remains the decision-maker. HGD evaluates and organizes designs; it does not automatically decide which mutation should be accepted.
+The human remains the decision-maker. HGD helps scientists evaluate designs, record why they acted on them, attach experimental results later, and return months or years afterward without losing the context behind earlier work.
 
 ## Status
 
-**v0.4 development — interactive research workspace**
+**v0.4 — interactive research workspace**
 
 Current development benchmark: GB1 / Protein G B1 domain (1PGA).
 
@@ -28,6 +28,8 @@ Human Accept / Defer / Reject decision
 New child design in the lineage tree
         ↓
 More computational / experimental / literature evidence over time
+        ↓
+Return later, compare designs, and continue from any branch
 ```
 
 A rejected or deferred branch remains part of the scientific record. HGD never silently rewrites historical designs.
@@ -38,18 +40,25 @@ The browser workspace currently provides:
 
 - local project creation and project switching;
 - radial design-lineage navigation;
+- a right-side summary for the currently selected design;
+- full scientific records opened explicitly from the summary;
 - persistent design, decision, structure, target, objective, and evidence records;
 - sequence editing that creates a new child design instead of overwriting history;
+- safe deletion of leaf design nodes directly from the frontend;
 - structure attachment and deletion;
 - local PyMOL launch for PDB/CIF/mmCIF/ENT/PQR structures;
 - PyRosetta baseline structure scoring;
 - one-substitution PyRosetta evaluation with local repacking/minimization;
-- saturation scans of all 19 alternative amino acids at one position;
+- structure-based saturation scans of all 19 alternative amino acids at one position;
+- clear in-app validation when a structure or valid PyRosetta input is missing;
 - Rosetta score-term inspection and structural-neighborhood context;
+- explicit design-to-design PyRosetta comparison using archived scores;
 - Accept / Defer / Reject decisions with rationale;
 - native previews for common scientific files including FASTA, CSV/TSV/XLSX, JSON, Rosetta `.sc`, PDF, images, Markdown/text, and structure files;
 - arbitrary evidence attachment for unsupported/raw instrument formats;
 - one portable Markdown export for giving the current project context to an LLM.
+
+Destructive actions use HGD-native confirmation dialogs rather than browser `confirm()` prompts, so browser prompt permissions cannot disable normal archive maintenance.
 
 ## Scientific archive
 
@@ -71,6 +80,14 @@ EvidenceEntry
 ```
 
 Scientific files are copied into the project and referenced with project-relative paths where appropriate, making projects portable between machines.
+
+### Design deletion safety
+
+Design deletion is intentionally conservative. HGD allows deletion of a **leaf design** only — a node with no child designs.
+
+If a design still has descendants, HGD refuses the deletion and asks you to remove the child branches first. This prevents one mistaken click from erasing an entire scientific lineage.
+
+Deleting a leaf design cleans up records owned directly by that design, including project-local structures, direct evidence files, and decisions associated with that node. HGD does not silently cascade into descendants and does not delete files outside the project-owned locations.
 
 ## LLM-ready project export
 
@@ -120,22 +137,49 @@ conda env create -f environment.yml
 conda activate human-guided-protein-design
 ```
 
-The project environment includes the core scientific and development stack, including Python 3.11, PyRosetta, PyMOL open-source as the default viewer, Node.js, the local web API, and test tooling.
+The project environment includes Python 3.11, PyRosetta, PyMOL open-source as the default viewer, Node.js for building the web workspace, the local FastAPI backend, and test tooling.
 
 A scientist with a licensed PyMOL installation may point HGD to that executable with `HGD_PYMOL`; HGD does not depend on which PyMOL edition is used.
 
 Detailed platform notes are in [`docs/INSTALL_CROSS_PLATFORM.md`](docs/INSTALL_CROSS_PLATFORM.md).
 
-## Start HGD
+## Run HGD
 
-Activate the environment and start the local backend:
+For normal scientific use, start from the **repository root** and run one command:
 
 ```bash
 conda activate human-guided-protein-design
 hgd
 ```
 
-During v0.4 frontend development, start Vite in a second terminal:
+That is the normal HGD launch workflow. `hgd` handles the complete local application:
+
+```text
+hgd
+ ├─ checks whether the React frontend needs rebuilding
+ ├─ installs frontend dependencies on first launch when needed
+ ├─ builds the React frontend when needed
+ ├─ starts the local FastAPI backend
+ ├─ serves the frontend and API from the same local process
+ └─ opens http://127.0.0.1:8000 in the default browser
+```
+
+You do **not** need a second terminal. You do **not** need to manually run `npm run build`, `npm run dev`, or `uvicorn` for normal scientific use.
+
+After pulling new frontend changes, simply run `hgd` again. HGD detects that the frontend source is newer than the compiled assets and rebuilds automatically.
+
+The first launch after a fresh clone or a frontend update can therefore take a little longer. Later launches reuse the existing build until another frontend source file changes.
+
+Useful optional launcher settings:
+
+```bash
+HGD_NO_BROWSER=1 hgd
+HGD_PORT=8010 hgd
+```
+
+### Frontend development only
+
+Developers who specifically want Vite hot reload can still use a separate frontend-development workflow:
 
 ```bash
 cd frontend
@@ -143,46 +187,78 @@ npm install
 npm run dev
 ```
 
-Then open the local URL shown by Vite, normally:
+This is **not** required for scientists running HGD and is not the normal way to launch the application.
 
-```text
-http://localhost:5173
-```
-
-All scientific project data remains on the local machine. The backend binds locally and the browser talks to the local Python API.
+All scientific project data remains on the local machine. HGD binds to the local interface and the browser communicates with the local Python API.
 
 ## Typical web workflow
 
 ```text
 1. Create/select project
-2. Create/select design
-3. Attach the structure representing that design
-4. Optionally score the current structure
-5. Either:
+2. Click a design node to select it
+3. Read its summary in the right inspector
+4. Open the full scientific record only when deeper inspection/editing is needed
+5. Attach the structure representing that design when structure-based analysis is needed
+6. Optionally score the current structure
+7. Either:
       - evaluate one hypothesis-driven mutation, or
-      - scan all 19 substitutions at one position
-6. Inspect ΔScore, score terms, and structural context
-7. Accept / Defer / Reject
-8. HGD preserves the candidate as a child node
-9. Attach later experimental/computational/literature evidence
-10. Continue from any branch
+      - scan all 19 substitutions at one position with PyRosetta
+8. Inspect ΔScore, score terms, and structural context
+9. Accept / Defer / Reject
+10. HGD preserves the candidate as a child node
+11. Attach later experimental/computational/literature evidence
+12. Compare scored Design A against scored Design B explicitly when scientifically appropriate
+13. Delete obsolete leaf nodes from the frontend when you truly want to remove them
+14. Continue from any branch months or years later
 ```
 
-### Important Rosetta interpretation
+## Comparing designs
 
-HGD reports:
+HGD distinguishes two different questions.
+
+### Mutation evaluation
+
+During a point-mutation experiment, HGD reports the candidate relative to the **specific parent design used for that mutation**:
 
 ```text
-ΔScore = Score(prepared mutant) - Score(prepared reference)
+ΔScore = Score(prepared mutant) - Score(prepared parent)
 ```
 
-Therefore, under the current Rosetta protocol:
+The parent is not assumed to be WT. If you mutate an already mutated branch, the score is relative to that direct parent background.
 
-- negative ΔScore is more favorable;
-- near-zero ΔScore is similar to the reference;
-- positive ΔScore is less favorable.
+Because this parent/mutant pair is evaluated with the matched local PyRosetta protocol, a negative ΔScore means the prepared mutant received a lower Rosetta score than its prepared parent under that calculation. A positive ΔScore means it received a higher score. This is evidence for interpretation, not an automatic biological decision.
 
-These values are Rosetta Energy Units (REU), not experimental ΔΔG values. A favorable Rosetta score is evidence for human interpretation, not an automatic biological conclusion.
+### Design-to-design comparison
+
+For broader comparison, HGD can compare two existing designs explicitly:
+
+```text
+Design A score
+vs
+Design B score
+
+comparison = Score(B) - Score(A)
+```
+
+Both designs must already have an archived PyRosetta score belonging to that design. Mutation-generated designs receive their PyRosetta design score automatically; other designs can be scored from their scientific record with **Score current structure**.
+
+The comparison UI always names **Design A** and **Design B**, shows the archived score source used for each, and never silently treats WT as the reference.
+
+The sign of `Score(B) - Score(A)` is **directional bookkeeping**, not an intrinsic favorability label:
+
+- a negative value means B's archived score is lower than A's;
+- a positive value means B's archived score is higher than A's;
+- swapping A and B necessarily flips the sign without changing the underlying science.
+
+Very large A/B differences should trigger inspection of the structures and archived scoring context rather than being interpreted automatically as an exceptionally favorable mutation. HGD blocks obvious incompatible comparisons, but the scientist still decides whether two designs are logically comparable.
+
+## Important Rosetta interpretation
+
+Rosetta scores are Rosetta Energy Units (REU), not experimental ΔΔG values.
+
+For a matched **parent → mutant** evaluation, lower Rosetta energy can support a hypothesis that the prepared mutant is energetically preferred under that specific protocol. For arbitrary archived **Design A vs Design B** comparisons, the numerical difference is only meaningful when the two scoring contexts are scientifically comparable.
+
+A Rosetta score is evidence for human interpretation, not an automatic biological conclusion.
 
 ## Evidence model
 
@@ -228,15 +304,15 @@ The web workspace is the main v0.4 interface. CLI scripts remain useful for deve
 | `10_add_structure.py` | Register a structure model |
 | `11_register_generated_design.py` | Register an externally generated design |
 
-## Tests
+## Tests and developer verification
 
-Run the Python suite:
+Run the Python suite from the repository root:
 
 ```bash
 python -m pytest -q
 ```
 
-Build-check the frontend:
+Developers and CI can explicitly build-check the frontend with:
 
 ```bash
 cd frontend
@@ -244,16 +320,20 @@ npm install
 npm run build
 ```
 
+Normal HGD users do **not** need to run those frontend commands; `hgd` performs the required build automatically.
+
 The cross-platform CI checks the portable workspace on supported operating-system runners, while full PyRosetta support is validated on platforms where the scientific stack is available natively.
 
 ## Project principles
 
 1. **Human-guided, not auto-decided.** Computational scores inform decisions; they do not replace them.
-2. **History is append-oriented.** New designs become new nodes rather than overwriting old states.
+2. **History is append-oriented by default.** New designs become new nodes rather than overwriting old states; explicit leaf deletion remains available when a scientist truly wants removal.
 3. **Structure is optional at the archive level.** It becomes required only for structure-based PyRosetta operations.
 4. **Evidence accumulates over time.** Computational, experimental, literature, and human evidence can coexist on one design.
 5. **Local first.** Project data and imported scientific files stay on the scientist's machine by default.
 6. **One canonical archive.** Generated views such as `PROJECT_CONTEXT.md` are exports, not competing sources of truth.
+7. **Comparisons are explicit.** HGD names the actual reference and comparison design instead of silently assuming WT.
+8. **Destructive actions are conservative.** HGD never cascades design deletion through descendants automatically.
 
 ## Repository layout
 
@@ -261,9 +341,9 @@ The cross-platform CI checks the portable workspace on supported operating-syste
 src/human_protein_design/   Python package, archive, PyRosetta logic, local API
 frontend/                   React + TypeScript workspace
 scripts/                    CLI utilities
- tests/                     Python tests
- docs/                      installation/frontend notes
- data/projects/             local scientific projects (not for public commits)
+tests/                      Python tests
+docs/                       installation/frontend notes
+data/projects/              local scientific projects (not for public commits)
 ```
 
 ## License

@@ -8,8 +8,9 @@ import {
   SequenceEditor,
 } from "./WorkspaceActions";
 import StructureViewer from "./StructureViewer";
+import DesignComparison from "./DesignComparison";
 import { EvidenceFiles } from "./ScientificFilePreview";
-import { DecisionRecorder, ProjectExportTools, PyRosettaWorkbench } from "./ScientificTools";
+import { ProjectExportTools, PyRosettaWorkbench } from "./ScientificTools";
 
 type PositionedNode = { node: DesignNode; x: number; y: number; depth: number };
 type Edge = { from: PositionedNode; to: PositionedNode };
@@ -168,7 +169,7 @@ function RosettaDeepDive({ entry }: { entry: EvidenceEntry }) {
 function Inspector({ design, slug, onUpdated, onOpen }: { design: DesignNode | null; slug: string | null; onUpdated: (p: ProjectDetail) => void; onOpen: () => void }) {
   if (!design) return <div className="empty-panel">Select a design to inspect it.</div>;
   const computational = design.evidence.filter((entry) => entry.source_type === "computational" && entry.data && Object.keys(entry.data).length > 0);
-  return <div className="inspector-content"><div className="section-heading"><div><p className="eyebrow">Design</p><h2>{design.label}</h2></div><StatusBadge value={design.status} /></div><button className="open-detail-button" onClick={onOpen}>Open full scientific record ↗</button>
+  return <div className="inspector-content"><div className="section-heading"><div><p className="eyebrow">Selected design summary</p><h2>{design.label}</h2></div><StatusBadge value={design.status} /></div><button className="open-detail-button" onClick={onOpen}>Open full scientific record ↗</button>
     <dl className="facts-grid"><div><dt>Origin</dt><dd>{design.origin}</dd></div><div><dt>Decision</dt><dd>{design.decision?.outcome ?? "none"}</dd></div><div><dt>Structures</dt><dd>{design.structures.length}</dd></div><div><dt>Created</dt><dd>{design.created_at.slice(0, 10)}</dd></div></dl>
     <section><h3>Lineage</h3><p className="lineage">{design.lineage_label}</p></section>{computational.length > 0 && <section><h3>Computational evaluation</h3><div className="record-list">{computational.map((entry) => <RosettaSummary entry={entry} key={entry.id} />)}</div></section>}
     <section><h3>Evidence</h3><div className="evidence-strip">{Object.entries(design.evidence_counts).map(([kind, count]) => <span key={kind}><b>{count}</b> {kind}</span>)}</div>{slug && design.evidence.length > 0 && <EvidenceList design={design} slug={slug} onUpdated={onUpdated} />}</section>{slug && <EvidenceImporter slug={slug} design={design} onUpdated={onUpdated} />}
@@ -184,7 +185,7 @@ function DesignDetail({ design, slug, onClose, onUpdated, onSelectNew }: { desig
   const [structureDialog, setStructureDialog] = useState(false);
   const computational = design.evidence.filter((entry) => entry.source_type === "computational" && entry.data && Object.keys(entry.data).length > 0 && entry.data.analysis_type !== "position_saturation_scan" && entry.data.analysis_type !== "structure_score");
   useEffect(() => { const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [onClose]);
-  return <div className="detail-overlay"><header className="detail-topbar"><div><p className="eyebrow">Scientific design record</p><h1>{design.label}</h1><p className="detail-lineage">{design.lineage_label}</p></div><div className="detail-actions"><StatusBadge value={design.status} /><button className="secondary-button" onClick={() => setStructureDialog(true)}>Add structure</button><button onClick={onClose}>← Back to design map</button></div></header>
+  return <div className="detail-overlay"><header className="detail-topbar"><div><p className="eyebrow">Scientific design record</p><h1>{design.label}</h1><p className="detail-lineage">{design.lineage_label}</p></div><div className="detail-actions"><StatusBadge value={design.status} /><button onClick={onClose}>← Back to design map</button></div></header>
     <main className="detail-page">
       <section className="detail-hero-grid"><div className="detail-card"><p className="eyebrow">Step 1 · Design identity</p><dl className="facts-grid large"><div><dt>Origin</dt><dd>{design.origin}</dd></div><div><dt>Decision</dt><dd>{design.decision?.outcome ?? "none"}</dd></div><div><dt>Created</dt><dd>{design.created_at.slice(0, 10)}</dd></div><div><dt>Structures</dt><dd>{design.structures.length}</dd></div></dl></div>
         <div className="detail-card"><p className="eyebrow">Sequence</p>{design.sequence ? <pre className="sequence large-sequence">{design.sequence}</pre> : <p className="muted">No sequence assigned.</p>}<SequenceEditor slug={slug} design={design} onUpdated={(project, id) => { onUpdated(project); onSelectNew(id); }} /></div></section>
@@ -192,7 +193,6 @@ function DesignDetail({ design, slug, onClose, onUpdated, onSelectNew }: { desig
       <section className="detail-card wide-section structure-step"><div className="detail-card-header"><div><p className="eyebrow">Step 2 · Structure</p><h3>Structural hypotheses</h3><p className="muted">Attach the structure that represents this design before running PyRosetta mutations or saturation scans.</p></div><button className="secondary-button" onClick={() => setStructureDialog(true)}>+ Add structure</button></div>{design.structures.length === 0 ? <p className="muted">No structure attached yet. Add a PDB, CIF/mmCIF, ENT, or PQR file before structure-based mutation work.</p> : <><StructureViewer slug={slug} structures={design.structures} onUpdated={onUpdated} /><div className="structure-grid">{design.structures.map((s) => <article className="record-card" key={s.id}><div className="record-title"><strong>{s.source}</strong><span>{s.method ?? ""}</span></div><p className="mono">{s.structure_path}</p><div className="metrics">{s.mean_plddt != null && <span>pLDDT {s.mean_plddt.toFixed(1)}</span>}{s.ptm != null && <span>pTM {s.ptm.toFixed(2)}</span>}{s.iptm != null && <span>ipTM {s.iptm.toFixed(2)}</span>}</div><a className="local-file-link" href={localFileUrl(slug, s.structure_path)} target="_blank" rel="noreferrer"><span className="file-icon">↗</span><span><b>Open raw structure file</b><small>{s.structure_path}</small></span></a></article>)}</div></>}</section>
 
       <DecisionHistory design={design} />
-      <DecisionRecorder slug={slug} design={design} onUpdated={onUpdated} />
       <PyRosettaWorkbench slug={slug} design={design} onUpdated={onUpdated} onSelectNew={onSelectNew} />
       {computational.map((entry) => <RosettaDeepDive key={entry.id} entry={entry} />)}
       <section className="detail-card wide-section"><div className="detail-card-header"><div><p className="eyebrow">Scientific provenance</p><h3>Evidence and local files</h3></div><span>{design.evidence.length} entries</span></div>{design.evidence.length ? <EvidenceList design={design} slug={slug} onUpdated={onUpdated} /> : <p className="muted">No evidence attached.</p>}<EvidenceImporter slug={slug} design={design} onUpdated={onUpdated} /></section>
@@ -207,7 +207,6 @@ export default function ScientificWorkspace() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
-  const [structureOpen, setStructureOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -224,16 +223,14 @@ export default function ScientificWorkspace() {
   function handleCreated(created: ProjectDetail, listItem: Record<string, unknown>) {
     setProjects((items) => [...items, listItem as unknown as ProjectListItem]); setSelectedSlug(created.slug); setProject(created); setSelectedDesignId(firstDesign(created.design_tree)?.id ?? null);
   }
-  function selectAndOpen(id: string) { setSelectedDesignId(id); setDetailOpen(true); }
 
   return <main className="app-shell">
-    <header className="topbar"><div><p className="eyebrow">Human-Guided Protein Design</p><h1>Research workspace</h1></div><div className="topbar-actions"><button className="primary-button compact-button" onClick={() => setNewProjectOpen(true)}>+ New project</button>{project && <button className="secondary-button" onClick={() => setRegisterOpen(true)}>+ Add design</button>}{selectedDesign && <button className="secondary-button" onClick={() => setStructureOpen(true)}>+ Add structure</button>}<span className="local-pill">Local only</span><span className="version">v0.4 dev</span></div></header>
+    <header className="topbar"><div><p className="eyebrow">Human-Guided Protein Design</p><h1>Research workspace</h1></div><div className="topbar-actions"><button className="primary-button compact-button" onClick={() => setNewProjectOpen(true)}>+ New project</button>{project && <button className="secondary-button" onClick={() => setRegisterOpen(true)}>+ Add design</button>}<span className="local-pill">Local only</span><span className="version">v0.4 dev</span></div></header>
     <div className="workspace"><aside className="sidebar"><div className="panel-title"><span>Projects</span><span className="count">{projects.length}</span></div>{projects.map((item) => <button key={item.slug} className={`project-button ${selectedSlug === item.slug ? "active" : ""}`} onClick={() => setSelectedSlug(item.slug)}><strong>{item.name}</strong><span>{item.design_count} designs · {item.structure_count} structures · {item.evidence_count} evidence</span></button>)}{!loading && projects.length === 0 && <p className="muted">No projects yet. Create one above.</p>}</aside>
-      <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2></div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div><ProjectExportTools slug={project.slug} /></div>{project.objectives.length > 0 && <div className="objective-card"><span className="eyebrow">Scientific objective</span><p>{project.objectives[0].description}</p></div>}<div className="tree-panel"><div className="panel-title"><span>Design map</span><span className="muted">click a node for full record</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={selectAndOpen} /></div></>}</section>
+      <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2></div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div><ProjectExportTools slug={project.slug} /></div>{project.objectives.length > 0 && <div className="objective-card"><span className="eyebrow">Scientific objective</span><p>{project.objectives[0].description}</p></div>}<DesignComparison designs={allDesigns} selectedDesignId={selectedDesignId} /><div className="tree-panel"><div className="panel-title"><span>Design map</span><span className="muted">click a node to update the summary on the right</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={setSelectedDesignId} /></div></>}</section>
       <aside className="inspector"><Inspector design={selectedDesign} slug={selectedSlug} onUpdated={handleUpdated} onOpen={() => selectedDesign && setDetailOpen(true)} /></aside></div>
     {detailOpen && selectedDesign && selectedSlug && <DesignDetail design={selectedDesign} slug={selectedSlug} onClose={() => setDetailOpen(false)} onUpdated={handleUpdated} onSelectNew={(id) => setSelectedDesignId(id)} />}
     <NewProjectDialog open={newProjectOpen} onClose={() => setNewProjectOpen(false)} onCreated={handleCreated} />
     {project && selectedSlug && <RegisterDesignDialog open={registerOpen} onClose={() => setRegisterOpen(false)} slug={selectedSlug} designs={allDesigns} defaultParentId={selectedDesignId} onUpdated={(updated, id) => { handleUpdated(updated); setSelectedDesignId(id); }} />}
-    {selectedDesign && selectedSlug && <AttachStructureDialog open={structureOpen} onClose={() => setStructureOpen(false)} slug={selectedSlug} design={selectedDesign} onUpdated={handleUpdated} />}
   </main>;
 }

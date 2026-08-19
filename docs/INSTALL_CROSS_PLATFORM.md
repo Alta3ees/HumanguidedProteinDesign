@@ -23,97 +23,89 @@ conda env create -f environment.yml
 conda activate human-guided-protein-design
 ```
 
-The environment installs:
+The environment installs Python 3.11, PyRosetta, PyMOL open source, Node.js 20+, HGD itself, FastAPI/Uvicorn, and the development test tooling.
 
-- Python 3.11
-- PyRosetta
-- Node.js 20+
-- HGD itself
-- FastAPI / Uvicorn / web dependencies
-- pytest / development test tooling
-
-Verify the scientific evaluator immediately:
+Verify the scientific evaluator:
 
 ```bash
 python -c "import pyrosetta; print(pyrosetta.__version__)"
-```
-
-Then verify the project:
-
-```bash
 python -m pytest -q
 ```
 
-## 3. PyMOL is external and edition-independent
+## 3. Start HGD
 
-HGD does **not** force a specific PyMOL edition.
+Normal users only need:
 
-If `pymol` is already available, HGD uses it. This may be:
+```bash
+conda activate human-guided-protein-design
+hgd
+```
 
-- licensed Schrödinger / Incentive PyMOL;
-- open-source PyMOL;
-- another local PyMOL installation exposed on `PATH`.
+`hgd` now manages the whole local workspace:
 
-If PyMOL is installed somewhere unusual, point HGD to it before starting the workspace.
+```text
+hgd
+ ├─ checks the compiled React interface
+ ├─ installs frontend packages on first launch if needed
+ ├─ rebuilds the interface when frontend source changed
+ ├─ starts FastAPI on 127.0.0.1
+ ├─ serves the React interface from that same process
+ └─ opens the workspace in the default browser
+```
 
-### Linux / macOS
+The default address is:
+
+```text
+http://127.0.0.1:8000
+```
+
+Press `Ctrl+C` in the terminal to stop HGD.
+
+The first launch may take a little longer because frontend dependencies/build artifacts may need to be created. Later launches reuse the existing build until the frontend source changes.
+
+For frontend development only, developers may still use Vite separately:
+
+```bash
+cd frontend
+npm run dev
+```
+
+This is not required for normal HGD use.
+
+To prevent automatic browser opening:
+
+```bash
+HGD_NO_BROWSER=1 hgd
+```
+
+To use a different local port:
+
+```bash
+HGD_PORT=8010 hgd
+```
+
+## 4. PyMOL
+
+The standard HGD environment includes `pymol-open-source`. HGD also supports licensed/local PyMOL installations.
+
+If PyMOL is installed somewhere unusual, override discovery:
 
 ```bash
 export HGD_PYMOL="/absolute/path/to/pymol"
 hgd
 ```
 
-### Windows / WSL2
-
-Run HGD inside WSL2. If PyMOL is installed inside the WSL environment and exposed on `PATH`, HGD uses it normally. External-viewer behavior can be configured separately as needed for a tester's Windows setup.
-
-If no PyMOL is installed and the open-source build is desired:
-
-```bash
-conda install -c conda-forge pymol-open-source
-```
-
-Licensed users may instead install/use the official Schrödinger distribution. HGD only launches the executable; it does not manage or inspect the PyMOL license.
-
-## 4. Start HGD
-
-After activating the environment:
-
-```bash
-hgd
-```
-
-This starts the local API at:
-
-```text
-http://127.0.0.1:8000
-```
-
-For frontend development, use a second terminal:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-and open:
-
-```text
-http://localhost:5173
-```
-
-The production goal is for a built frontend to be served directly by HGD so normal scientists do not need to run npm during everyday use.
+HGD only launches the selected executable; it does not manage PyMOL licensing.
 
 ## 5. Platform notes
 
 ### Linux
 
-Run the HGD backend from a normal host terminal. If HGD is started inside a Flatpak-hosted IDE terminal, the `hgd` launcher attempts to bridge PyMOL GUI launch back to the host using `flatpak-spawn --host`.
+Run HGD from a normal host terminal. If HGD is started inside a Flatpak-hosted IDE terminal, the launcher attempts to bridge the PyMOL GUI back to the host with `flatpak-spawn --host`.
 
 ### macOS
 
-HGD checks `PATH` first and also recognizes the standard application bundle executable:
+HGD checks `PATH` and also recognizes:
 
 ```text
 /Applications/PyMOL.app/Contents/MacOS/PyMOL
@@ -123,10 +115,8 @@ HGD checks `PATH` first and also recognizes the standard application bundle exec
 
 ### Windows
 
-For the **full** HGD workflow, install and run the project in WSL2. This is the supported route for PyRosetta-backed HGD on Windows.
-
-The browser UI can still be opened from the Windows browser through localhost. Native-Windows-only testing may be useful for the structure-independent web/archive layer, but it is not considered the complete HGD scientific installation.
+For the **full** HGD workflow, run HGD inside WSL2. The browser UI can still be opened from the Windows browser through localhost.
 
 ## 6. Local-data guarantee
 
-By default HGD binds its backend only to `127.0.0.1`. Imported files are copied into the selected project and stored using project-relative paths. HGD does not require a cloud account or upload scientific data to a remote service.
+By default HGD binds only to `127.0.0.1`. Imported files are copied into the selected project and stored using project-relative paths. HGD does not require a cloud account or upload scientific data to a remote service.
