@@ -16,8 +16,7 @@ from human_protein_design.archive import (
     DesignProject,
     EvidenceEntry,
     StructureModel,
-    export_obsidian_vault,
-    export_project_summary,
+    export_project_context,
 )
 from human_protein_design.fasta import normalize_sequence, validate_amino_acid
 
@@ -85,7 +84,7 @@ def _load_pose(project: DesignProject, design_id: str):
     structure_path = resolve_design_structure(project, design_id)
     try:
         pose = pyrosetta.pose_from_file(str(structure_path))
-    except Exception as error:  # PyRosetta raises several wrapped C++ exception types.
+    except Exception as error:
         raise ValueError(f"PyRosetta could not load {structure_path.name}: {error}") from error
     return pose, structure_path
 
@@ -158,11 +157,7 @@ def _require_mutation_compatible_structure(project: DesignProject, design_id: st
         raise ValueError(str(warning))
 
 
-def score_current_structure(
-    project: DesignProject,
-    *,
-    design_id: str,
-) -> EvidenceEntry:
+def score_current_structure(project: DesignProject, *, design_id: str) -> EvidenceEntry:
     """Score the current design structure without creating a mutation."""
     (
         _pyrosetta,
@@ -222,17 +217,8 @@ def run_position_scan(
 
     score_function = get_standard_score_function()
     wt_aa = pose.residue(position).name1()
-    results = scan_position(
-        pose,
-        position=position,
-        score_function=score_function,
-        radius=radius,
-    )
-    neighbors = get_spatial_neighbors(
-        pose,
-        center_position=position,
-        radius=radius,
-    )
+    results = scan_position(pose, position=position, score_function=score_function, radius=radius)
+    neighbors = get_spatial_neighbors(pose, center_position=position, radius=radius)
 
     scan_dir = project.evidence_dir / "mutation_scans"
     scan_dir.mkdir(parents=True, exist_ok=True)
@@ -410,17 +396,10 @@ def decide_candidate(
     return decision
 
 
-def export_obsidian(project: DesignProject) -> Path:
-    """Export the current archive as an Obsidian-friendly Markdown vault."""
-    output = project.root_dir / "obsidian"
-    export_obsidian_vault(archive=project.archive, output_dir=output)
-    return output
-
-
-def generate_project_summary(project: DesignProject) -> Path:
-    """Generate/update the project-wide Markdown scientific summary."""
-    return export_project_summary(
+def generate_project_context(project: DesignProject) -> Path:
+    """Generate/update the portable Markdown context for humans and LLMs."""
+    return export_project_context(
         archive=project.archive,
-        output_path=project.root_dir / "PROJECT_SUMMARY.md",
+        output_path=project.root_dir / "PROJECT_CONTEXT.md",
         project_name=project.name,
     )
