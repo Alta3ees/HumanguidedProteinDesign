@@ -9,7 +9,7 @@ import {
 } from "./WorkspaceActions";
 import StructureViewer from "./StructureViewer";
 import { EvidenceFiles } from "./ScientificFilePreview";
-import { ProjectExportTools, PyRosettaWorkbench } from "./ScientificTools";
+import { DecisionRecorder, ProjectExportTools, PyRosettaWorkbench } from "./ScientificTools";
 
 type PositionedNode = { node: DesignNode; x: number; y: number; depth: number };
 type Edge = { from: PositionedNode; to: PositionedNode };
@@ -188,6 +188,7 @@ function DesignDetail({ design, slug, onClose, onUpdated, onSelectNew }: { desig
     <main className="detail-page"><section className="detail-hero-grid"><div className="detail-card"><p className="eyebrow">Design identity</p><dl className="facts-grid large"><div><dt>Origin</dt><dd>{design.origin}</dd></div><div><dt>Decision</dt><dd>{design.decision?.outcome ?? "none"}</dd></div><div><dt>Created</dt><dd>{design.created_at.slice(0, 10)}</dd></div><div><dt>Structures</dt><dd>{design.structures.length}</dd></div></dl></div>
       <div className="detail-card"><p className="eyebrow">Sequence</p>{design.sequence ? <pre className="sequence large-sequence">{design.sequence}</pre> : <p className="muted">No sequence assigned.</p>}<SequenceEditor slug={slug} design={design} onUpdated={(project, id) => { onUpdated(project); onSelectNew(id); }} /></div></section>
       <DecisionHistory design={design} />
+      <DecisionRecorder slug={slug} design={design} onUpdated={onUpdated} />
       <PyRosettaWorkbench slug={slug} design={design} onUpdated={onUpdated} onSelectNew={onSelectNew} />
       {computational.map((entry) => <RosettaDeepDive key={entry.id} entry={entry} />)}
       <section className="detail-card wide-section"><div className="detail-card-header"><div><p className="eyebrow">Structural hypotheses</p><h3>Structures</h3></div><button className="secondary-button" onClick={() => setStructureDialog(true)}>+ Add structure</button></div>{design.structures.length === 0 ? <p className="muted">No first-class structure model attached.</p> : <><StructureViewer slug={slug} structures={design.structures} /><div className="structure-grid">{design.structures.map((s) => <article className="record-card" key={s.id}><div className="record-title"><strong>{s.source}</strong><span>{s.method ?? ""}</span></div><p className="mono">{s.structure_path}</p><div className="metrics">{s.mean_plddt != null && <span>pLDDT {s.mean_plddt.toFixed(1)}</span>}{s.ptm != null && <span>pTM {s.ptm.toFixed(2)}</span>}{s.iptm != null && <span>ipTM {s.iptm.toFixed(2)}</span>}</div><a className="local-file-link" href={localFileUrl(slug, s.structure_path)} target="_blank" rel="noreferrer"><span className="file-icon">↗</span><span><b>Open raw structure file</b><small>{s.structure_path}</small></span></a></article>)}</div></>}</section>
