@@ -23,6 +23,7 @@ from human_protein_design.web.actions import (
     create_derived_sequence_design,
     create_project,
     delete_evidence,
+    delete_structure,
     register_design,
     safe_filename,
 )
@@ -318,6 +319,16 @@ def attach_structure_endpoint(
     finally:
         file.file.close()
     return {"structure": structure.to_dict(), "project": _project_payload(project, slug)}
+
+
+@app.delete("/api/projects/{slug}/structures/{structure_id}")
+def delete_structure_endpoint(slug: str, structure_id: str) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        deleted_files = delete_structure(project, structure_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"deleted_files": deleted_files, "project": _project_payload(project, slug)}
 
 
 @app.post("/api/projects/{slug}/designs/{design_id}/score-structure")
