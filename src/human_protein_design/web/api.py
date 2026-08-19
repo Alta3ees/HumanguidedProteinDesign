@@ -270,33 +270,24 @@ def attach_structure_endpoint(
 
 @app.get("/api/projects/{slug}/files/{relative_path:path}")
 def open_project_file(slug: str, relative_path: str) -> FileResponse:
-    """Serve a local project data file from an explicitly allowed storage root.
+    """Serve any file stored inside the selected local HGD project directory.
 
-    Only files beneath ``evidence/`` or ``structures/`` are exposed. This lets the
-    browser inspect imported evidence and visualize PDB/mmCIF structures without
-    granting access to arbitrary files elsewhere on the scientist's machine.
+    HGD v0.4 is a local-first workspace. The browser is allowed to inspect any
+    file that belongs to the selected project (structures, evidence, exports,
+    generated outputs, etc.). Path traversal outside that project remains
+    blocked so a project URL cannot become a generic filesystem browser.
     """
-    project_path = _project_dir(slug)
-    allowed_roots = [
-        (project_path / "evidence").resolve(),
-        (project_path / "structures").resolve(),
-    ]
+    project_path = _project_dir(slug).resolve()
     requested = Path(relative_path)
     if requested.is_absolute():
         raise HTTPException(status_code=400, detail="Invalid file path.")
 
     candidate = (project_path / requested).resolve()
-    allowed = False
-    for root in allowed_roots:
-        try:
-            candidate.relative_to(root)
-            allowed = True
-            break
-        except ValueError:
-            continue
+    try:
+        candidate.relative_to(project_path)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail="File is outside the selected project directory.") from error
 
-    if not allowed:
-        raise HTTPException(status_code=403, detail="File is outside allowed project data storage.")
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="Project file not found.")
     return FileResponse(candidate)
