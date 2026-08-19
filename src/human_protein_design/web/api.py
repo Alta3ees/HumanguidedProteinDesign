@@ -33,6 +33,7 @@ from human_protein_design.web.science_actions import (
     export_obsidian,
     generate_project_summary,
     run_position_scan,
+    score_current_structure,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -159,6 +160,7 @@ def _design_payload(project: DesignProject, design_id: str) -> dict[str, Any]:
         "label": archive.get_design_label(design_id),
         "lineage_label": archive.get_lineage_label(design_id),
         "decision": decisions[-1].to_dict() if decisions else None,
+        "decisions": [item.to_dict() for item in decisions],
         "structures": [item.to_dict() for item in structures],
         "evidence": [item.to_dict() for item in evidence],
         "evidence_counts": archive.get_design_evidence_counts(design_id),
@@ -316,6 +318,16 @@ def attach_structure_endpoint(
     finally:
         file.file.close()
     return {"structure": structure.to_dict(), "project": _project_payload(project, slug)}
+
+
+@app.post("/api/projects/{slug}/designs/{design_id}/score-structure")
+def score_structure(slug: str, design_id: str) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        evidence = score_current_structure(project, design_id=design_id)
+    except (ValueError, KeyError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"evidence": evidence.to_dict(), "project": _project_payload(project, slug)}
 
 
 @app.post("/api/projects/{slug}/designs/{design_id}/position-scan")
