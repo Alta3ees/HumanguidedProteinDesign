@@ -68,13 +68,14 @@ export default function StructureViewer({
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || !selected) return;
+    const activeStage: Stage = stage;
 
     let cancelled = false;
     const controller = new AbortController();
     setLoading(true);
     setMessage(null);
     setLoadedLabel(null);
-    stage.removeAllComponents();
+    activeStage.removeAllComponents();
     componentRef.current = null;
 
     async function loadStructure() {
@@ -98,7 +99,7 @@ export default function StructureViewer({
       if (blob.size === 0) throw new Error(`Structure file is empty: ${path}`);
       if (cancelled) return;
 
-      const loaded = await stage.loadFile(blob, {
+      const loaded = await activeStage.loadFile(blob, {
         ext: extension,
         defaultRepresentation: false,
       });
@@ -118,10 +119,10 @@ export default function StructureViewer({
         });
       }
 
-      stage.handleResize();
+      activeStage.handleResize();
       component.autoView();
-      stage.autoView();
-      requestAnimationFrame(() => stage.handleResize());
+      activeStage.autoView();
+      requestAnimationFrame(() => activeStage.handleResize());
 
       const name = path.split("/").pop() ?? path;
       setLoadedLabel(`${name} · ${blob.size.toLocaleString()} bytes · ${extension.toUpperCase()}`);
