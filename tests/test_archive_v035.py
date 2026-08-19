@@ -1,4 +1,13 @@
-from human_protein_design.archive import Design, DesignArchive, EvidenceEntry, ProjectObjective, StructureModel
+import pytest
+
+from human_protein_design.archive import (
+    Design,
+    DesignArchive,
+    EvidenceEntry,
+    ProjectObjective,
+    StructureModel,
+    Target,
+)
 
 
 def test_sequence_only_design_is_valid():
@@ -10,6 +19,22 @@ def test_sequence_only_design_is_valid():
     archive.validate()
     assert design.sequence == "ACDEFG"
     assert archive.get_design_structures(design.id) == []
+
+
+def test_design_sequence_is_normalized_and_validated_at_model_level():
+    design = Design(name="candidate", sequence="ac defg", origin="sequence_design")
+    assert design.sequence == "ACDEFG"
+
+    with pytest.raises(ValueError, match="Invalid amino-acid character"):
+        Design(name="invalid", sequence="HELLOWORLD", origin="sequence_design")
+
+
+def test_target_sequence_is_validated_at_model_level():
+    target = Target(name="target", sequence="acdefg")
+    assert target.sequence == "ACDEFG"
+
+    with pytest.raises(ValueError, match="Invalid amino-acid character"):
+        Target(name="invalid target", sequence="ACDX")
 
 
 def test_de_novo_project_can_exist_before_first_design():
