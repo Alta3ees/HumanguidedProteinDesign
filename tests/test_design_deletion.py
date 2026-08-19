@@ -3,16 +3,6 @@ from fastapi.testclient import TestClient
 from human_protein_design.archive import Decision, Design, DesignProject, EvidenceEntry, StructureModel
 from human_protein_design.web import api
 from human_protein_design.web.design_delete import delete_leaf_design
-from human_protein_design.web.design_routes import router as design_router
-
-
-def _ensure_design_delete_route() -> None:
-    if not any(
-        getattr(route, "path", None) == "/api/projects/{slug}/designs/{design_id}"
-        and "DELETE" in getattr(route, "methods", set())
-        for route in api.app.routes
-    ):
-        api.app.include_router(design_router)
 
 
 def make_branch(projects_root):
@@ -100,9 +90,8 @@ def test_delete_design_refuses_non_leaf_node(tmp_path):
 
 def test_design_delete_api_returns_updated_project(tmp_path, monkeypatch):
     projects_root = tmp_path / "projects"
-    project, root, child = make_branch(projects_root)
+    _, root, child = make_branch(projects_root)
     monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
-    _ensure_design_delete_route()
     client = TestClient(api.app)
 
     response = client.delete(f"/api/projects/demo/designs/{child.id}")
@@ -119,7 +108,6 @@ def test_design_delete_api_refuses_parent_with_children(tmp_path, monkeypatch):
     projects_root = tmp_path / "projects"
     _, root, _ = make_branch(projects_root)
     monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
-    _ensure_design_delete_route()
     client = TestClient(api.app)
 
     response = client.delete(f"/api/projects/demo/designs/{root.id}")
