@@ -7,68 +7,127 @@ import shutil
 from pathlib import Path
 
 from human_protein_design.archive import Design, DesignProject, EvidenceEntry, StructureModel
+from human_protein_design.cli import (
+    ask_choice,
+    ask_text,
+    choose_file,
+    choose_item,
+    choose_project,
+)
 from human_protein_design.fasta import normalize_sequence
 
-ALLOWED_ORIGINS = {"de_novo", "generated_backbone", "sequence_design", "point_mutation", "imported_design"}
+
+STRUCTURE_SUFFIXES = {".pdb", ".cif", ".mmcif"}
 
 
-def choose_optional_parent(project: DesignProject):
-    designs = list(project.archive.designs.values())
-    if not designs:
-        return None
-    print("\nPossible parents:")
-    print("  0. No parent")
-    for index, design in enumerate(designs, start=1):
-        print(f"  {index}. {project.archive.get_design_label(design.id)}")
-    raw = input("Parent [0]: ").strip() or "0"
-    try:
-        index = int(raw)
-    except ValueError:
-        raise SystemExit("Invalid parent selection.")
-    if index == 0:
-        return None
-    try:
-        return designs[index - 1]
-    except IndexError:
-        raise SystemExit("Invalid parent selection.")
+def ask_sequence_optional() -> str | None:
+    while True:
+        raw = ask_text("Sequence", required=False)
+        if not raw:
+            return None
+        try:
+            return normalize_sequence(raw)
+        except ValueError as error:
+            print(error)
+
+
+def unique_destination(source: Path, destination_dir: Path) -> Path:
+    destination = destination_dir / source.name
+    if not destination.exists() or source.resolve() == destination.resolve():
+        return destination
+    stem, suffix, counter = destination.stem, destination.suffix, 2
+    while destination.exists():
+        destination = destination_dir / f"{stem}_{counter}{suffix}"
+        counter += 1
+    return destination
 
 
 def main() -> None:
-    project_dir = Path(input("Project directory: ").strip()).expanduser()
+    print("\nHuman-Guided Protein Design — v0.3.5")
+    print("Register generated/imported design\n")
+
+    project_dir = choose_project()
     project = DesignProject.load(name=project_dir.name, root_dir=project_dir)
-    parent = choose_optional_parent(project)
-    origin = input("Origin [de_novo/generated_backbone/sequence_design/point_mutation/imported_design]: ").strip()
-    if origin not in ALLOWED_ORIGINS:
-        raise SystemExit("Invalid origin.")
-    name = input("Design name: ").strip()
-    sequence_raw = input("Sequence [optional]: ").strip()
-    sequence = normalize_sequence(sequence_raw) if sequence_raw else None
-    hypothesis = input("Pre-evaluation hypothesis [optional]: ").strip() or None
+
+    designs = list(project.archive.designs.values())
+    parent = choose_item(
+        designs,
+        "Choose parent",
+        label=lambda item: project.archive.get_design_label(item.id),
+        allow_none=True,
+        none_label="No parent",
+    ) if designs else None
+
+    print(
+        "\nDesign origin:\n"
+        "  1. De novo\n"
+        "  2. Generated backbone\n"
+        "  3. Sequence design\n"
+        "  4. Point mutation\n"
+        "  5. Imported design"
+    )
+    origin = ask_choice(
+        "Choose origin",
+        {
+            "1": "de_novo",
+            "2": "generated_backbone",
+            "3": "sequence_design",
+            "4": "point_mutation",
+            "5": "imported_design",
+        },
+    )
+
+    name = ask_text("Design name")
+    sequence = ask_sequence_optional()
+    hypothesis = ask_text("Pre-evaluation hypothesis", required=False) or None
+    tool = ask_text("Generator / source tool", required=False)
+    structure_file = choose_file(
+        Path.cwd(),
+        "Select structure / backbone file",
+        allowed_suffixes=STRUCTURE_SUFFIXES,
+        recursive=True,
+        required=False,
+    )
+
     objective_id = next(iter(project.archive.objectives), None)
     target_id = next(iter(project.archive.targets), None)
-    design = Design(name=name, sequence=sequence, origin=origin, parent_design_id=parent.id if parent else None, objective_id=objective_id, target_id=target_id, hypothesis=hypothesis)
+    design = Design(
+        name=name,
+        sequence=sequence,
+        origin=origin,
+        parent_design_id=parent.id if parent else None,
+        objective_id=objective_id,
+        target_id=target_id,
+        hypothesis=hypothesis,
+    )
     project.archive.add_design(design)
-    tool = input("Generator / source tool [optional]: ").strip()
-    structure_raw = input("Structure / backbone file [optional]: ").strip()
+
     structure = None
-    if structure_raw:
-        source_file = Path(structure_raw).expanduser()
-        if not source_file.is_file():
-            raise SystemExit(f"File not found: {source_file}")
-        destination = project.structures_dir / source_file.name
-        if source_file.resolve() != destination.resolve():
-            shutil.copy2(source_file, destination)
+    if structure_file is not None:
+        destination = unique_destination(structure_file, project.structures_dir)
+        if structure_file.resolve() != destination.resolve():
+            shutil.copy2(structure_file, destination)
         source = "rfdiffusion" if tool.lower().startswith("rfdiffusion") else "other"
-        structure = StructureModel(design_id=design.id, structure_path=str(destination.relative_to(project.root_dir)), source=source, method=tool or None)
+        structure = StructureModel(
+            design_id=design.id,
+            structure_path=str(destination.relative_to(project.root_dir)),
+            source=source,
+            method=tool or None,
+        )
         project.archive.add_structure(structure)
-    project.archive.add_evidence(EvidenceEntry(
-        source_type="computational",
-        source_name=tool or "external design workflow",
-        summary=f"Registered generated/imported design {design.id}.",
-        design_id=design.id,
-        structure_id=structure.id if structure else None,
-    ))
+
+    project.archive.add_evidence(
+        EvidenceEntry(
+            source_type="computational",
+            source_name=tool or "external design workflow",
+            summary=f"Registered generated/imported design {design.id}.",
+            design_id=design.id,
+            structure_id=structure.id if structure else None,
+        )
+    )
+    project.archive.validate()
     project.save()
+
     print(f"\nRegistered {design.name} [{design.id}]")
     print("No Rosetta score or decision was assumed.")
 
