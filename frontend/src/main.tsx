@@ -1,11 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import ThemeDock from "./ThemeDock";
 import "./styles.css";
 import "./actions.css";
+import "./protein-theme.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
+    <ThemeDock />
   </React.StrictMode>,
 );
