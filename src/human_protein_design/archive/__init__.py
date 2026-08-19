@@ -11,7 +11,7 @@ from human_protein_design.archive.models import (
 from human_protein_design.archive.store import DesignArchive
 from human_protein_design.archive.evidence import add_external_evidence
 from human_protein_design.archive.project import DesignProject
-from human_protein_design.archive.summary import export_project_context, export_project_summary
+from human_protein_design.archive.summary import export_project_context
 
 __all__ = [
     "Decision",
@@ -24,5 +24,4 @@ __all__ = [
     "add_external_evidence",
     "DesignProject",
     "export_project_context",
-    "export_project_summary",
 ]
