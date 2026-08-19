@@ -31,8 +31,7 @@ from human_protein_design.web.file_preview import preview_file
 from human_protein_design.web.science_actions import (
     decide_candidate,
     evaluate_point_mutation,
-    export_obsidian,
-    generate_project_summary,
+    generate_project_context,
     run_position_scan,
     score_current_structure,
 )
@@ -405,22 +404,11 @@ def record_candidate_decision(
     return {"decision": decision.to_dict(), "project": _project_payload(project, slug)}
 
 
-@app.post("/api/projects/{slug}/export/obsidian")
-def export_obsidian_endpoint(slug: str) -> dict[str, Any]:
+@app.post("/api/projects/{slug}/export/context")
+def export_context_endpoint(slug: str) -> dict[str, str]:
+    """Generate the single portable Markdown context snapshot for this project."""
     project = _load_project(slug)
-    output = export_obsidian(project)
-    files = sorted(
-        str(path.relative_to(project.root_dir))
-        for path in output.rglob("*")
-        if path.is_file()
-    )
-    return {"output_dir": str(output.relative_to(project.root_dir)), "files": files}
-
-
-@app.post("/api/projects/{slug}/export/summary")
-def export_summary_endpoint(slug: str) -> dict[str, str]:
-    project = _load_project(slug)
-    output = generate_project_summary(project)
+    output = generate_project_context(project)
     return {"file_path": str(output.relative_to(project.root_dir))}
 
 
@@ -481,14 +469,8 @@ def launch_pymol(slug: str, request: LaunchPyMOLRequest) -> dict[str, str]:
             diagnostic = log_path.read_text(encoding="utf-8").strip()
         except OSError:
             diagnostic = ""
-        if diagnostic:
-            diagnostic = diagnostic[-3000:]
-        else:
-            diagnostic = f"PyMOL exited immediately with code {return_code}."
-        raise HTTPException(
-            status_code=500,
-            detail=f"PyMOL failed to start. {diagnostic}",
-        )
+        diagnostic = diagnostic[-3000:] if diagnostic else f"PyMOL exited immediately with code {return_code}."
+        raise HTTPException(status_code=500, detail=f"PyMOL failed to start. {diagnostic}")
 
     status = "running" if return_code is None else "launcher_exited"
     return {
