@@ -1,15 +1,11 @@
-"""Local FastAPI surface for the v0.4 research workspace.
-
-The API is intentionally local-first. Project data remains on the scientist's
-machine under ``data/projects`` (or ``HGD_PROJECTS_ROOT``). The frontend never
-writes archive JSON directly; imports go through the validated Python archive.
-"""
+"""Local FastAPI surface for the v0.4 research workspace."""
 
 from __future__ import annotations
 
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,9 +13,17 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from human_protein_design.archive import DesignProject, EvidenceEntry
-
+from human_protein_design.web.actions import (
+    attach_structure_file,
+    create_derived_sequence_design,
+    create_project,
+    delete_evidence,
+    register_design,
+    safe_filename,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PROJECTS_ROOT = REPOSITORY_ROOT / "data" / "projects"
@@ -27,14 +31,37 @@ PROJECTS_ROOT = Path(os.environ.get("HGD_PROJECTS_ROOT", DEFAULT_PROJECTS_ROOT))
 ALLOWED_EVIDENCE_TYPES = {"computational", "experimental", "literature", "note"}
 
 app = FastAPI(title="Human-Guided Protein Design API", version="0.4.0-dev")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+
+class NewProjectRequest(BaseModel):
+    name: str
+    objective: str
+    sequence: str | None = None
+    design_name: str | None = None
+    target_name: str | None = None
+    target_sequence: str | None = None
+
+
+class DerivedSequenceRequest(BaseModel):
+    sequence: str
+    name: str | None = None
+    hypothesis: str | None = None
+
+
+class RegisterDesignRequest(BaseModel):
+    name: str
+    origin: str
+    sequence: str | None = None
+    parent_design_id: str | None = None
+    hypothesis: str | None = None
+    source_tool: str | None = None
 
 
 def _project_dir(slug: str) -> Path:
@@ -48,6 +75,11 @@ def _project_dir(slug: str) -> Path:
     return path
 
 
+def _load_project(slug: str) -> DesignProject:
+    path = _project_dir(slug)
+    return DesignProject.load(name=path.name, root_dir=path)
+
+
 def _safe_filename(filename: str | None) -> str:
     raw = Path(filename or "evidence_file").name
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._")
@@ -58,10 +90,8 @@ def _unique_path(directory: Path, filename: str) -> Path:
     candidate = directory / filename
     if not candidate.exists():
         return candidate
-    stem = candidate.stem
-    suffix = candidate.suffix
-    counter = 2
-    while True:
+    stem, suffix, counter = candidate.stem, candidate.suffix, 2
+    while candidate.exists():
         candidate = directory / f"{stem}_{counter}{suffix}"
         if not candidate.exists():
             return candidate
@@ -110,6 +140,17 @@ def _project_payload(project: DesignProject, slug: str) -> dict[str, Any]:
     }
 
 
+def _project_list_item(project: DesignProject, slug: str) -> dict[str, Any]:
+    return {
+        "slug": slug,
+        "name": project.name,
+        "schema_version": project.archive.SCHEMA_VERSION,
+        "design_count": len(project.archive.designs),
+        "structure_count": len(project.archive.structures),
+        "evidence_count": len(project.archive.evidence),
+    }
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "projects_root": str(PROJECTS_ROOT)}
@@ -121,31 +162,110 @@ def list_projects() -> list[dict[str, Any]]:
         return []
     projects: list[dict[str, Any]] = []
     for path in sorted(PROJECTS_ROOT.iterdir(), key=lambda item: item.name.lower()):
-        archive_path = path / "design_archive.json"
-        if not path.is_dir() or not archive_path.is_file():
+        if not path.is_dir() or not (path / "design_archive.json").is_file():
             continue
         try:
             project = DesignProject.load(name=path.name, root_dir=path)
         except (ValueError, OSError):
             continue
-        projects.append(
-            {
-                "slug": path.name,
-                "name": project.name,
-                "schema_version": project.archive.SCHEMA_VERSION,
-                "design_count": len(project.archive.designs),
-                "structure_count": len(project.archive.structures),
-                "evidence_count": len(project.archive.evidence),
-            }
-        )
+        projects.append(_project_list_item(project, path.name))
     return projects
+
+
+@app.post("/api/projects")
+def create_project_endpoint(request: NewProjectRequest) -> dict[str, Any]:
+    try:
+        project = create_project(
+            projects_root=PROJECTS_ROOT,
+            name=request.name,
+            objective=request.objective,
+            sequence=request.sequence,
+            design_name=request.design_name,
+            target_name=request.target_name,
+            target_sequence=request.target_sequence,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {
+        "list_item": _project_list_item(project, project.root_dir.name),
+        "project": _project_payload(project, project.root_dir.name),
+    }
 
 
 @app.get("/api/projects/{slug}")
 def get_project(slug: str) -> dict[str, Any]:
-    path = _project_dir(slug)
-    project = DesignProject.load(name=path.name, root_dir=path)
-    return _project_payload(project, slug)
+    return _project_payload(_load_project(slug), slug)
+
+
+@app.post("/api/projects/{slug}/designs/{design_id}/derive-sequence")
+def derive_sequence(slug: str, design_id: str, request: DerivedSequenceRequest) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        design = create_derived_sequence_design(
+            project,
+            parent_design_id=design_id,
+            sequence=request.sequence,
+            name=request.name,
+            hypothesis=request.hypothesis,
+        )
+    except (ValueError, KeyError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"design_id": design.id, "project": _project_payload(project, slug)}
+
+
+@app.post("/api/projects/{slug}/designs")
+def register_design_endpoint(slug: str, request: RegisterDesignRequest) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        design = register_design(
+            project,
+            name=request.name,
+            origin=request.origin,
+            sequence=request.sequence,
+            parent_design_id=request.parent_design_id,
+            hypothesis=request.hypothesis,
+            source_tool=request.source_tool,
+        )
+    except (ValueError, KeyError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"design_id": design.id, "project": _project_payload(project, slug)}
+
+
+@app.post("/api/projects/{slug}/designs/{design_id}/structures")
+def attach_structure_endpoint(
+    slug: str,
+    design_id: str,
+    source: str = Form("user"),
+    method: str = Form(""),
+    mean_plddt: float | None = Form(None),
+    ptm: float | None = Form(None),
+    iptm: float | None = Form(None),
+    notes: str = Form(""),
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    project = _load_project(slug)
+    filename = safe_filename(file.filename, "structure.pdb")
+    try:
+        with tempfile.TemporaryDirectory(prefix="hgd_structure_", dir=project.root_dir) as temp_dir:
+            temp_path = Path(temp_dir) / filename
+            with temp_path.open("wb") as handle:
+                shutil.copyfileobj(file.file, handle)
+            structure = attach_structure_file(
+                project,
+                design_id=design_id,
+                source_path=temp_path,
+                source=source.strip().lower(),
+                method=method,
+                mean_plddt=mean_plddt,
+                ptm=ptm,
+                iptm=iptm,
+                notes=notes,
+            )
+    except (ValueError, KeyError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        file.file.close()
+    return {"structure": structure.to_dict(), "project": _project_payload(project, slug)}
 
 
 @app.get("/api/projects/{slug}/files/{relative_path:path}")
@@ -176,9 +296,7 @@ def import_design_evidence(
     notes: str = Form(""),
     files: list[UploadFile] = File(...),
 ) -> dict[str, Any]:
-    """Import local files and attach them as evidence to one design."""
-    path = _project_dir(slug)
-    project = DesignProject.load(name=path.name, root_dir=path)
+    project = _load_project(slug)
     if design_id not in project.archive.designs:
         raise HTTPException(status_code=404, detail="Design not found.")
 
@@ -192,7 +310,6 @@ def import_design_evidence(
     import_dir.mkdir(parents=True, exist_ok=False)
     stored_paths: list[str] = []
     original_names: list[str] = []
-
     try:
         for uploaded in files:
             filename = _safe_filename(uploaded.filename)
@@ -215,7 +332,6 @@ def import_design_evidence(
         if len(original_names) == 1
         else f"Imported {len(original_names)} local files."
     )
-
     evidence = EvidenceEntry(
         source_type=source_type,
         source_name=resolved_source_name,
@@ -227,9 +343,18 @@ def import_design_evidence(
     )
     project.archive.add_evidence(evidence)
     project.save()
-
     return {
         "evidence": evidence.to_dict(),
         "stored_files": stored_paths,
         "project": _project_payload(project, slug),
     }
+
+
+@app.delete("/api/projects/{slug}/evidence/{evidence_id}")
+def delete_evidence_endpoint(slug: str, evidence_id: str) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        deleted_files = delete_evidence(project, evidence_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"deleted_files": deleted_files, "project": _project_payload(project, slug)}
