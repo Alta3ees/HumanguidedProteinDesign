@@ -8,7 +8,8 @@
 
 .workbench-title h3,
 .tool-card h4,
-.decision-recorder h3 {
+.decision-recorder h3,
+.decision-card-full h3 {
   margin: .1rem 0 .25rem;
   font-size: 1rem;
   line-height: 1.2;
@@ -84,6 +85,13 @@
 .decision-recorder textarea {
   min-height: 4.6rem;
   resize: vertical;
+}
+
+.tool-card input::placeholder,
+.tool-card textarea::placeholder,
+.decision-recorder textarea::placeholder {
+  color: color-mix(in srgb, var(--hgd-muted) 88%, transparent) !important;
+  opacity: 1;
 }
 
 .guided-fields {
@@ -236,9 +244,44 @@
   border-color: color-mix(in srgb, var(--hgd-accent-2) 38%, var(--hgd-border)) !important;
 }
 
+.decision-history-head strong {
+  font-size: .82rem !important;
+  text-transform: capitalize;
+}
+
+.decision-history-head time,
+.decision-history-head span {
+  font-size: .7rem;
+}
+
+.decision-history-item .decision-grid > div {
+  background: color-mix(in srgb, var(--hgd-accent-2) 7%, var(--hgd-panel)) !important;
+  color: var(--hgd-text) !important;
+  border: 1px solid color-mix(in srgb, var(--hgd-accent-2) 30%, var(--hgd-border)) !important;
+}
+
+.decision-history-item .decision-grid span {
+  color: var(--hgd-muted) !important;
+  font-size: .65rem !important;
+}
+
+.decision-history-item .decision-grid p {
+  color: var(--hgd-text) !important;
+  font-size: .76rem !important;
+}
+
 :root[data-theme="dark"] .decision-history-item {
   background: color-mix(in srgb, var(--hgd-accent-2) 14%, var(--hgd-panel)) !important;
 }
+
+:root[data-theme="dark"] .decision-history-item .decision-grid > div {
+  background: color-mix(in srgb, var(--hgd-accent-2) 16%, var(--hgd-panel)) !important;
+}
+
+/* Keep detail-page hierarchy restrained; dense scientific records should not read like a landing page. */
+.detail-page h2 { font-size: 1.08rem !important; }
+.detail-page h3 { font-size: 1rem !important; }
+.detail-page .eyebrow { font-size: .62rem !important; letter-spacing: .09em; }
 
 .file-preview-backdrop {
   z-index: 5000;
