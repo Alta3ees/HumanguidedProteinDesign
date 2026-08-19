@@ -26,6 +26,14 @@ from human_protein_design.web.actions import (
     register_design,
     safe_filename,
 )
+from human_protein_design.web.file_preview import preview_file
+from human_protein_design.web.science_actions import (
+    decide_candidate,
+    evaluate_point_mutation,
+    export_obsidian,
+    generate_project_summary,
+    run_position_scan,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PROJECTS_ROOT = REPOSITORY_ROOT / "data" / "projects"
@@ -68,6 +76,26 @@ class RegisterDesignRequest(BaseModel):
 
 class LaunchPyMOLRequest(BaseModel):
     relative_path: str
+
+
+class PositionScanRequest(BaseModel):
+    position: int
+    radius: float = 8.0
+
+
+class PointMutationRequest(BaseModel):
+    position: int
+    mutant_aa: str
+    hypothesis: str = ""
+    objective: str = ""
+    design_name: str | None = None
+    radius: float = 8.0
+
+
+class CandidateDecisionRequest(BaseModel):
+    outcome: str
+    rationale: str = ""
+    user_note: str | None = None
 
 
 def _project_dir(slug: str) -> Path:
@@ -288,6 +316,97 @@ def attach_structure_endpoint(
     finally:
         file.file.close()
     return {"structure": structure.to_dict(), "project": _project_payload(project, slug)}
+
+
+@app.post("/api/projects/{slug}/designs/{design_id}/position-scan")
+def position_scan(slug: str, design_id: str, request: PositionScanRequest) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        evidence, results, neighbors, file_path = run_position_scan(
+            project,
+            design_id=design_id,
+            position=request.position,
+            radius=request.radius,
+        )
+    except (ValueError, KeyError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {
+        "evidence": evidence.to_dict(),
+        "results": results,
+        "neighbors": neighbors,
+        "file_path": file_path,
+        "project": _project_payload(project, slug),
+    }
+
+
+@app.post("/api/projects/{slug}/designs/{design_id}/evaluate-mutation")
+def point_mutation(slug: str, design_id: str, request: PointMutationRequest) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        candidate_id, evaluation = evaluate_point_mutation(
+            project,
+            design_id=design_id,
+            position=request.position,
+            mutant_aa=request.mutant_aa,
+            hypothesis=request.hypothesis,
+            objective=request.objective,
+            design_name=request.design_name,
+            radius=request.radius,
+        )
+    except (ValueError, KeyError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {
+        "candidate_design_id": candidate_id,
+        "evaluation": evaluation,
+        "project": _project_payload(project, slug),
+    }
+
+
+@app.post("/api/projects/{slug}/designs/{candidate_design_id}/decision")
+def record_candidate_decision(
+    slug: str,
+    candidate_design_id: str,
+    request: CandidateDecisionRequest,
+) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        decision = decide_candidate(
+            project,
+            candidate_design_id=candidate_design_id,
+            outcome=request.outcome.strip().lower(),
+            rationale=request.rationale,
+            user_note=request.user_note,
+        )
+    except (ValueError, KeyError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"decision": decision.to_dict(), "project": _project_payload(project, slug)}
+
+
+@app.post("/api/projects/{slug}/export/obsidian")
+def export_obsidian_endpoint(slug: str) -> dict[str, Any]:
+    project = _load_project(slug)
+    output = export_obsidian(project)
+    files = sorted(
+        str(path.relative_to(project.root_dir))
+        for path in output.rglob("*")
+        if path.is_file()
+    )
+    return {"output_dir": str(output.relative_to(project.root_dir)), "files": files}
+
+
+@app.post("/api/projects/{slug}/export/summary")
+def export_summary_endpoint(slug: str) -> dict[str, str]:
+    project = _load_project(slug)
+    output = generate_project_summary(project)
+    return {"file_path": str(output.relative_to(project.root_dir))}
+
+
+@app.get("/api/projects/{slug}/preview/{relative_path:path}")
+def preview_project_file(slug: str, relative_path: str) -> dict[str, Any]:
+    try:
+        return preview_file(_project_file(slug, relative_path))
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/projects/{slug}/files/{relative_path:path}")
