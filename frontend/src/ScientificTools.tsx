@@ -185,6 +185,37 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   </section>;
 }
 
+export function DecisionRecorder({ slug, design, onUpdated }: {
+  slug: string;
+  design: DesignNode;
+  onUpdated: (project: ProjectDetail) => void;
+}) {
+  const [rationale, setRationale] = useState("");
+  const [userNote, setUserNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (!design.parent_design_id) return null;
+
+  async function record(outcome: "accepted" | "rejected" | "deferred") {
+    setBusy(true); setMessage(null);
+    try {
+      const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/designs/${encodeURIComponent(design.id)}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outcome, rationale, user_note: userNote || null }),
+      }));
+      onUpdated(payload.project as ProjectDetail);
+      setRationale(""); setUserNote("");
+      setMessage(`New ${outcome} decision appended to the scientific record.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not record decision.");
+    } finally { setBusy(false); }
+  }
+
+  return <section className="detail-card decision-recorder"><div className="detail-card-header"><div><p className="eyebrow">Revisit candidate</p><h3>Record a new decision</h3></div><span>append-only</span></div><p className="muted">Use this after new computational, literature, or experimental evidence changes your assessment. Earlier decisions remain visible above.</p><label>Rationale<textarea value={rationale} onChange={(e) => setRationale(e.target.value)} placeholder="What evidence or reasoning supports this decision now?" /></label><label>User note <span className="optional-label">optional</span><textarea value={userNote} onChange={(e) => setUserNote(e.target.value)} /></label><div className="decision-actions"><button className="primary-button" disabled={busy} onClick={() => record("accepted")}>Accept</button><button className="secondary-button" disabled={busy} onClick={() => record("deferred")}>Defer</button><button className="danger-button" disabled={busy} onClick={() => record("rejected")}>Reject</button></div>{message && <p className="form-message">{message}</p>}</section>;
+}
+
 export function ProjectExportTools({ slug }: { slug: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
