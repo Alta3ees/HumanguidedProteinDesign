@@ -52,18 +52,17 @@ class DesignProject:
         return self.root_dir / "outputs"
 
     def save(self) -> None:
-        """Save archive and regenerate the human-readable summary."""
-        from human_protein_design.archive.summary import export_project_summary
+        """Persist the canonical archive only.
+
+        Portable Markdown context is intentionally generated only when the user
+        explicitly requests an export. Normal project mutations should remain
+        fast and should not continuously regenerate a large LLM-facing file.
+        """
         self.archive.save(self.archive_path)
-        export_project_summary(
-            archive=self.archive,
-            output_path=self.root_dir / "PROJECT_SUMMARY.md",
-            project_name=self.name,
-        )
 
     @classmethod
     def load(cls, name: str, root_dir: str | Path) -> "DesignProject":
-        """Load an existing project, automatically reading v0.3 archives."""
+        """Load an existing project, automatically reading supported archives."""
         root_dir = Path(root_dir)
         project = cls(name=name, root_dir=root_dir)
         if project.archive_path.exists():
