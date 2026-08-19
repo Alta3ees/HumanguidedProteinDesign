@@ -39,8 +39,7 @@
 
 .tool-card,
 .baseline-score-bar,
-.baseline-score-result,
-.decision-recorder {
+.baseline-score-result {
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--hgd-accent-2) 45%, var(--hgd-border));
   border-radius: 14px;
@@ -50,8 +49,7 @@
 
 :root[data-theme="dark"] .tool-card,
 :root[data-theme="dark"] .baseline-score-bar,
-:root[data-theme="dark"] .baseline-score-result,
-:root[data-theme="dark"] .decision-recorder {
+:root[data-theme="dark"] .baseline-score-result {
   background: color-mix(in srgb, var(--hgd-accent-2) 18%, var(--hgd-panel)) !important;
   border-color: color-mix(in srgb, var(--hgd-accent-2) 48%, var(--hgd-border)) !important;
 }
@@ -63,8 +61,7 @@
   padding: 1rem;
 }
 
-.tool-card label,
-.decision-recorder label {
+.tool-card label {
   display: flex;
   flex-direction: column;
   gap: .28rem;
@@ -75,21 +72,17 @@
 
 .tool-card input,
 .tool-card select,
-.tool-card textarea,
-.decision-recorder input,
-.decision-recorder textarea {
+.tool-card textarea {
   font-size: .82rem !important;
 }
 
-.tool-card textarea,
-.decision-recorder textarea {
+.tool-card textarea {
   min-height: 4.6rem;
   resize: vertical;
 }
 
 .tool-card input::placeholder,
-.tool-card textarea::placeholder,
-.decision-recorder textarea::placeholder {
+.tool-card textarea::placeholder {
   color: color-mix(in srgb, var(--hgd-muted) 88%, transparent) !important;
   opacity: 1;
 }
@@ -228,30 +221,93 @@
 
 .workbench-message {
   margin: .8rem 0 0;
-  padding: .65rem .75rem;
+  padding: .7rem .8rem;
+  border: 1px solid color-mix(in srgb, var(--hgd-accent-2) 42%, var(--hgd-border));
   border-radius: 9px;
-  background: color-mix(in srgb, var(--hgd-accent-2) 10%, var(--hgd-panel));
+  background: color-mix(in srgb, var(--hgd-accent-2) 13%, var(--hgd-panel));
   color: var(--hgd-text);
 }
 
+/* Decisions are an audit timeline, not a stack of permanently expanded forms. */
 .decision-recorder {
-  padding: 1rem;
+  display: none !important;
+}
+
+.decision-history {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  max-height: 30rem;
+  overflow-y: auto;
+  padding-right: .25rem;
+  scrollbar-gutter: stable;
 }
 
 .decision-history-item {
-  background: color-mix(in srgb, var(--hgd-accent-2) 9%, var(--hgd-panel)) !important;
+  padding: .55rem .7rem !important;
+  border: 1px solid color-mix(in srgb, var(--hgd-accent-2) 34%, var(--hgd-border)) !important;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hgd-accent-2) 7%, var(--hgd-panel)) !important;
   color: var(--hgd-text) !important;
-  border-color: color-mix(in srgb, var(--hgd-accent-2) 38%, var(--hgd-border)) !important;
+}
+
+.decision-history-item:last-child {
+  padding: .75rem !important;
+  border-color: color-mix(in srgb, var(--hgd-accent-2) 70%, var(--hgd-border)) !important;
+  background: color-mix(in srgb, var(--hgd-accent-2) 13%, var(--hgd-panel)) !important;
+  box-shadow: inset 3px 0 color-mix(in srgb, var(--hgd-accent-2) 78%, transparent);
+}
+
+.decision-history-head {
+  display: grid !important;
+  grid-template-columns: 2rem minmax(7rem, 10rem) minmax(7rem, 1fr);
+  align-items: center;
+  column-gap: 1rem;
+  min-height: 1.7rem;
+}
+
+.decision-history-head .decision-index {
+  display: inline-grid;
+  place-items: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border: 1px solid color-mix(in srgb, var(--hgd-accent-2) 45%, var(--hgd-border));
+  border-radius: 999px;
+  font-weight: 800;
+  color: var(--hgd-accent-2);
 }
 
 .decision-history-head strong {
-  font-size: .82rem !important;
+  font-size: .78rem !important;
   text-transform: capitalize;
+  letter-spacing: .02em;
 }
 
-.decision-history-head time,
-.decision-history-head span {
+.decision-history-head time {
+  justify-self: end;
+  color: var(--hgd-muted);
   font-size: .7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Old decisions remain visible as compact # / state / date audit rows. */
+.decision-history-item:not(:last-child) .decision-grid {
+  display: none !important;
+}
+
+.decision-history-item:last-child::before {
+  content: "Latest decision";
+  display: block;
+  margin: 0 0 .45rem 3rem;
+  color: var(--hgd-accent-2);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.decision-history-item .decision-grid {
+  margin-top: .65rem;
 }
 
 .decision-history-item .decision-grid > div {
@@ -271,7 +327,11 @@
 }
 
 :root[data-theme="dark"] .decision-history-item {
-  background: color-mix(in srgb, var(--hgd-accent-2) 14%, var(--hgd-panel)) !important;
+  background: color-mix(in srgb, var(--hgd-accent-2) 10%, var(--hgd-panel)) !important;
+}
+
+:root[data-theme="dark"] .decision-history-item:last-child {
+  background: color-mix(in srgb, var(--hgd-accent-2) 18%, var(--hgd-panel)) !important;
 }
 
 :root[data-theme="dark"] .decision-history-item .decision-grid > div {
@@ -396,5 +456,10 @@
   .baseline-score-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .decision-history-head {
+    grid-template-columns: 2rem 1fr auto;
+    column-gap: .55rem;
   }
 }
