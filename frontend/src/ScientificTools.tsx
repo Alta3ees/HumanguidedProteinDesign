@@ -1,4 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
+import DesignDeleteControl from "./DesignDeleteControl";
 import NoticeDialog, { type NoticeContent } from "./NoticeDialog";
 import type { DesignNode, ProjectDetail } from "./types";
 
@@ -274,6 +275,7 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
       </div>
       {message && <p className="form-message workbench-message">{message}</p>}
     </section>
+    <DesignDeleteControl slug={slug} design={design} onUpdated={onUpdated} onSelectNew={onSelectNew} />
     <NoticeDialog notice={notice} onClose={() => setNotice(null)} />
   </>;
 }
