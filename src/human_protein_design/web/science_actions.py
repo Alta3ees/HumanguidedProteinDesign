@@ -1,6 +1,6 @@
 """Scientific actions exposed by the v0.4 local web workspace.
 
-The CLI scripts and browser UI call the same underlying archive/scoring code.  This
+The CLI scripts and browser UI call the same underlying archive/scoring code. This
 module contains the state-changing scientific operations that should not live in
 FastAPI route handlers or React components.
 """
@@ -11,8 +11,6 @@ import csv
 from dataclasses import asdict
 from pathlib import Path
 
-import pyrosetta
-
 from human_protein_design.archive import (
     Decision,
     DesignProject,
@@ -22,13 +20,6 @@ from human_protein_design.archive import (
     export_project_summary,
 )
 from human_protein_design.fasta import validate_amino_acid
-from human_protein_design.mutation import get_spatial_neighbors
-from human_protein_design.scan import scan_position
-from human_protein_design.scoring import (
-    get_standard_score_function,
-    initialize_pyrosetta,
-)
-from human_protein_design.session import DesignSession
 
 
 def resolve_design_structure(project: DesignProject, design_id: str) -> Path:
@@ -53,7 +44,40 @@ def resolve_design_structure(project: DesignProject, design_id: str) -> Path:
     return candidate
 
 
+def _pyrosetta_tools():
+    """Import PyRosetta-backed modules only when a scientific action is invoked."""
+    try:
+        import pyrosetta
+        from human_protein_design.mutation import get_spatial_neighbors
+        from human_protein_design.scan import scan_position
+        from human_protein_design.scoring import (
+            get_standard_score_function,
+            initialize_pyrosetta,
+        )
+        from human_protein_design.session import DesignSession
+    except ImportError as error:
+        raise RuntimeError(
+            "PyRosetta is not available in this HGD environment. Install/update from environment.yml and restart HGD."
+        ) from error
+    return (
+        pyrosetta,
+        get_spatial_neighbors,
+        scan_position,
+        get_standard_score_function,
+        initialize_pyrosetta,
+        DesignSession,
+    )
+
+
 def _load_pose(project: DesignProject, design_id: str):
+    (
+        pyrosetta,
+        _get_spatial_neighbors,
+        _scan_position,
+        _get_standard_score_function,
+        initialize_pyrosetta,
+        _DesignSession,
+    ) = _pyrosetta_tools()
     initialize_pyrosetta()
     structure_path = resolve_design_structure(project, design_id)
     try:
@@ -71,6 +95,14 @@ def run_position_scan(
     radius: float = 8.0,
 ) -> tuple[EvidenceEntry, list[dict[str, float | int | str]], list[int], str]:
     """Evaluate all 19 substitutions at one residue and archive the ranking."""
+    (
+        _pyrosetta,
+        get_spatial_neighbors,
+        scan_position,
+        get_standard_score_function,
+        _initialize_pyrosetta,
+        _DesignSession,
+    ) = _pyrosetta_tools()
     pose, _ = _load_pose(project, design_id)
     if position < 1 or position > pose.total_residue():
         raise ValueError(f"Position must be between 1 and {pose.total_residue()}.")
@@ -146,6 +178,14 @@ def evaluate_point_mutation(
     radius: float = 8.0,
 ) -> tuple[str, dict[str, object]]:
     """Evaluate one point mutation and persist it as an undecided child design."""
+    (
+        _pyrosetta,
+        _get_spatial_neighbors,
+        _scan_position,
+        get_standard_score_function,
+        _initialize_pyrosetta,
+        DesignSession,
+    ) = _pyrosetta_tools()
     pose, _ = _load_pose(project, design_id)
     if position < 1 or position > pose.total_residue():
         raise ValueError(f"Position must be between 1 and {pose.total_residue()}.")
@@ -162,7 +202,7 @@ def evaluate_point_mutation(
         structures_dir=project.structures_dir,
         radius=radius,
     )
-    mutant_pose, result, analysis, context = session.evaluate_mutation(
+    _mutant_pose, result, analysis, context = session.evaluate_mutation(
         position,
         mutant_aa,
         hypothesis=hypothesis.strip(),
