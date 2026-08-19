@@ -1,18 +1,27 @@
-"""Read-only FastAPI surface for the v0.4 research workspace."""
+"""Local FastAPI surface for the v0.4 research workspace.
+
+The API is intentionally local-first. Project data remains on the scientist's
+machine under ``data/projects`` (or ``HGD_PROJECTS_ROOT``). The frontend never
+writes archive JSON directly; imports go through the validated Python archive.
+"""
 
 from __future__ import annotations
 
 import os
+import re
+import shutil
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from human_protein_design.archive import DesignProject
+from human_protein_design.archive import DesignProject, EvidenceEntry
 
 
 PROJECTS_ROOT = Path(os.environ.get("HGD_PROJECTS_ROOT", "data/projects"))
+ALLOWED_EVIDENCE_TYPES = {"computational", "experimental", "literature", "note"}
 
 app = FastAPI(
     title="Human-Guided Protein Design API",
@@ -23,7 +32,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -37,6 +46,27 @@ def _project_dir(slug: str) -> Path:
     if not (path / "design_archive.json").is_file():
         raise HTTPException(status_code=404, detail="Project archive not found.")
     return path
+
+
+def _safe_filename(filename: str | None) -> str:
+    """Return a conservative basename for a locally uploaded file."""
+    raw = Path(filename or "evidence_file").name
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._")
+    return safe or "evidence_file"
+
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    candidate = directory / filename
+    if not candidate.exists():
+        return candidate
+    stem = candidate.stem
+    suffix = candidate.suffix
+    counter = 2
+    while True:
+        candidate = directory / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 
 def _design_payload(project: DesignProject, design_id: str) -> dict[str, Any]:
@@ -122,3 +152,75 @@ def get_project(slug: str) -> dict[str, Any]:
     path = _project_dir(slug)
     project = DesignProject.load(name=path.name, root_dir=path)
     return _project_payload(project, slug)
+
+
+@app.post("/api/projects/{slug}/designs/{design_id}/evidence")
+def import_design_evidence(
+    slug: str,
+    design_id: str,
+    source_type: str = Form(...),
+    source_name: str = Form(...),
+    summary: str = Form(...),
+    notes: str = Form(""),
+    files: list[UploadFile] = File(...),
+) -> dict[str, Any]:
+    """Import local files and attach them as evidence to one design.
+
+    Uploaded bytes never leave the local FastAPI process. They are copied into
+    the project's ``evidence`` directory and referenced by project-relative
+    paths in the canonical archive.
+    """
+    path = _project_dir(slug)
+    project = DesignProject.load(name=path.name, root_dir=path)
+
+    if design_id not in project.archive.designs:
+        raise HTTPException(status_code=404, detail="Design not found.")
+
+    source_type = source_type.strip().lower()
+    if source_type not in ALLOWED_EVIDENCE_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid evidence type.")
+
+    source_name = source_name.strip()
+    summary = summary.strip()
+    if not source_name:
+        raise HTTPException(status_code=400, detail="Source name is required.")
+    if not summary:
+        raise HTTPException(status_code=400, detail="Summary is required.")
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one file is required.")
+
+    import_dir = project.evidence_dir / f"import_{uuid4().hex[:12]}"
+    import_dir.mkdir(parents=True, exist_ok=False)
+    stored_paths: list[str] = []
+
+    try:
+        for uploaded in files:
+            filename = _safe_filename(uploaded.filename)
+            destination = _unique_path(import_dir, filename)
+            with destination.open("wb") as handle:
+                shutil.copyfileobj(uploaded.file, handle)
+            stored_paths.append(str(destination.relative_to(project.root_dir)))
+    except Exception:
+        shutil.rmtree(import_dir, ignore_errors=True)
+        raise
+    finally:
+        for uploaded in files:
+            uploaded.file.close()
+
+    evidence = EvidenceEntry(
+        source_type=source_type,
+        source_name=source_name,
+        summary=summary,
+        notes=notes.strip() or None,
+        design_id=design_id,
+        file_paths=stored_paths,
+        data={"import_method": "local_web_upload"},
+    )
+    project.archive.add_evidence(evidence)
+    project.save()
+
+    return {
+        "evidence": evidence.to_dict(),
+        "stored_files": stored_paths,
+        "project": _project_payload(project, slug),
+    }
