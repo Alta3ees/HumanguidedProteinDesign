@@ -270,19 +270,35 @@ def attach_structure_endpoint(
 
 @app.get("/api/projects/{slug}/files/{relative_path:path}")
 def open_project_file(slug: str, relative_path: str) -> FileResponse:
-    """Serve one imported evidence file, restricted to project/evidence."""
+    """Serve a local project data file from an explicitly allowed storage root.
+
+    Only files beneath ``evidence/`` or ``structures/`` are exposed. This lets the
+    browser inspect imported evidence and visualize PDB/mmCIF structures without
+    granting access to arbitrary files elsewhere on the scientist's machine.
+    """
     project_path = _project_dir(slug)
-    evidence_root = (project_path / "evidence").resolve()
+    allowed_roots = [
+        (project_path / "evidence").resolve(),
+        (project_path / "structures").resolve(),
+    ]
     requested = Path(relative_path)
     if requested.is_absolute():
         raise HTTPException(status_code=400, detail="Invalid file path.")
+
     candidate = (project_path / requested).resolve()
-    try:
-        candidate.relative_to(evidence_root)
-    except ValueError as error:
-        raise HTTPException(status_code=403, detail="File is outside project evidence storage.") from error
+    allowed = False
+    for root in allowed_roots:
+        try:
+            candidate.relative_to(root)
+            allowed = True
+            break
+        except ValueError:
+            continue
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail="File is outside allowed project data storage.")
     if not candidate.is_file():
-        raise HTTPException(status_code=404, detail="Evidence file not found.")
+        raise HTTPException(status_code=404, detail="Project file not found.")
     return FileResponse(candidate)
 
 
