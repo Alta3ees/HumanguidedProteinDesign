@@ -21,6 +21,47 @@
   margin-bottom: 0;
 }
 
+.compact-structure-tools {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.structure-tool-title {
+  min-width: 180px;
+}
+
+.structure-tool-title h3 {
+  overflow-wrap: anywhere;
+}
+
+.compact-structure-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--hgd-border);
+}
+
+.compact-structure-meta span {
+  max-width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--hgd-border);
+  border-radius: 7px;
+  background: var(--hgd-panel-soft);
+  color: var(--hgd-muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.pymol-message-block {
+  margin: 0 14px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--hgd-border);
+  border-radius: 8px;
+  background: var(--hgd-panel-soft);
+  overflow-wrap: anywhere;
+}
+
 /* Remove light-theme pills/cards leaking through in dark mode. */
 :root[data-theme="dark"] .project-counts span,
 :root[data-theme="dark"] .evidence-strip span,
