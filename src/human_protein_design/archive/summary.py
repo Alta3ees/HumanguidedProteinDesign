@@ -114,17 +114,17 @@ def export_project_context(
     for design in designs:
         latest = archive.get_latest_decision(design.id)
         delta = _latest_delta_score(archive, design.id)
+        delta_text = f"{delta:+.3f}" if delta is not None else "—"
         lines.append(
-            f"| {archive.get_design_label(design.id)} | {archive.get_lineage_label(design.id)} | "
-            f"{design.origin} | {design.status} | {latest.outcome if latest else '—'} | "
-            f"{delta:+.3f}" if delta is not None else
-            f"| {archive.get_design_label(design.id)} | {archive.get_lineage_label(design.id)} | "
-            f"{design.origin} | {design.status} | {latest.outcome if latest else '—'} | —"
+            f"| {archive.get_design_label(design.id)} "
+            f"| {archive.get_lineage_label(design.id)} "
+            f"| {design.origin} "
+            f"| {design.status} "
+            f"| {latest.outcome if latest else '—'} "
+            f"| {delta_text} "
+            f"| {len(archive.get_design_structures(design.id))} "
+            f"| {len(archive.get_design_evidence(design.id))} |"
         )
-        if delta is not None:
-            lines[-1] += f" | {len(archive.get_design_structures(design.id))} | {len(archive.get_design_evidence(design.id))} |"
-        else:
-            lines[-1] += f" | {len(archive.get_design_structures(design.id))} | {len(archive.get_design_evidence(design.id))} |"
 
     lines.extend(["", "## Design records", ""])
     for design in designs:
@@ -233,8 +233,3 @@ def export_project_context(
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
     return output_path
-
-
-# Temporary compatibility alias for old code/scripts. New code should use
-# export_project_context and PROJECT_CONTEXT.md.
-export_project_summary = export_project_context
