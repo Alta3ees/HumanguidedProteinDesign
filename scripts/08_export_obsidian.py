@@ -1,46 +1,24 @@
-from pathlib import Path
-
 from human_protein_design.archive import (
     DesignProject,
     export_obsidian_vault,
 )
-
-
-PROJECT_DIR = Path(
-    "data/projects/gb1_design"
-)
-
-OBSIDIAN_DIR = (
-    PROJECT_DIR
-    / "obsidian"
-)
+from human_protein_design.cli import choose_project
 
 
 def main() -> None:
-    """Export project archive to Obsidian Markdown."""
-
-    project = DesignProject.load(
-        name="GB1 Human-Guided Design",
-        root_dir=PROJECT_DIR,
-    )
+    """Export a selected project archive to Obsidian Markdown."""
+    project_dir = choose_project()
+    project = DesignProject.load(name=project_dir.name, root_dir=project_dir)
+    obsidian_dir = project.root_dir / "obsidian"
 
     export_obsidian_vault(
         archive=project.archive,
-        output_dir=OBSIDIAN_DIR,
+        output_dir=obsidian_dir,
     )
 
-    print(
-        "\nObsidian export complete."
-    )
-
-    print(
-        f"Output: {OBSIDIAN_DIR}"
-    )
-
-    print(
-        f"Designs exported: "
-        f"{len(project.archive.designs)}"
-    )
+    print("\nObsidian export complete.")
+    print(f"Output: {obsidian_dir}")
+    print(f"Designs exported: {len(project.archive.designs)}")
 
 
 if __name__ == "__main__":
