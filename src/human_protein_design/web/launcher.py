@@ -75,24 +75,38 @@ def _write_posix_shim(directory: Path, pymol: Path, *, flatpak_host: bool) -> Pa
     return shim
 
 
-def prepare_pymol_for_backend() -> Path | None:
-    """Make the selected PyMOL visible to the existing backend launcher.
+def _write_windows_shim(directory: Path, pymol: Path) -> Path:
+    """Expose executables such as PyMOLWin.exe under the command name pymol."""
+    shim = directory / "pymol.cmd"
+    target = str(pymol).replace('"', '""')
+    shim.write_text(f'@echo off\r\n"{target}" %*\r\n', encoding="utf-8")
+    return shim
 
-    HGD's API intentionally only asks for a ``pymol`` command. This helper
-    discovers licensed/open-source installations and, when required, adds a
-    tiny temporary shim directory to PATH. Inside Flatpak it uses
-    ``flatpak-spawn --host`` so the GUI is launched on the real desktop.
+
+def prepare_pymol_for_backend() -> Path | None:
+    """Make a local PyMOL installation visible to the backend launcher.
+
+    HGD accepts licensed or open-source PyMOL. The user can select an exact
+    executable with ``HGD_PYMOL``. macOS application bundles and Windows
+    ``PyMOLWin.exe`` installs are normalized to the ``pymol`` command expected
+    by the API. When HGD itself runs inside Flatpak on Linux, a small shim uses
+    ``flatpak-spawn --host`` so the GUI opens on the real desktop.
     """
     pymol = find_pymol()
     if pymol is None:
         return None
 
     flatpak = Path("/.flatpak-info").exists()
-    needs_shim = flatpak or (sys.platform == "darwin" and pymol.name != "pymol")
+    mac_bundle_name = sys.platform == "darwin" and pymol.name != "pymol"
+    windows_nonstandard_name = os.name == "nt" and pymol.stem.lower() != "pymol"
+    needs_shim = flatpak or mac_bundle_name or windows_nonstandard_name
 
-    if needs_shim and os.name != "nt":
+    if needs_shim:
         shim_dir = Path(tempfile.mkdtemp(prefix="hgd-pymol-"))
-        _write_posix_shim(shim_dir, pymol, flatpak_host=flatpak)
+        if os.name == "nt":
+            _write_windows_shim(shim_dir, pymol)
+        else:
+            _write_posix_shim(shim_dir, pymol, flatpak_host=flatpak)
         os.environ["PATH"] = str(shim_dir) + os.pathsep + os.environ.get("PATH", "")
     else:
         os.environ["PATH"] = str(pymol.parent) + os.pathsep + os.environ.get("PATH", "")
@@ -112,7 +126,7 @@ def main() -> None:
         print(f"HGD: PyMOL detected at {pymol}")
     else:
         print("HGD: PyMOL not detected. Structure files remain usable, but 'Open in PyMOL' will be unavailable.")
-        print("     Install your licensed PyMOL, set HGD_PYMOL, or install pymol-open-source.")
+        print("     Install licensed PyMOL, set HGD_PYMOL, or install pymol-open-source.")
 
     print("HGD: starting local workspace backend at http://127.0.0.1:8000")
     uvicorn.run(
