@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { DesignNode, ProjectDetail } from "./types";
 
 async function responseJson(response: Response) {
@@ -72,24 +72,36 @@ export function RegisterDesignDialog({ open, onClose, slug, designs, defaultPare
   const [name, setName] = useState("");
   const [origin, setOrigin] = useState("imported_design");
   const [sequence, setSequence] = useState("");
-  const [parentId, setParentId] = useState(defaultParentId ?? "");
+  const [parentId, setParentId] = useState("");
   const [hypothesis, setHypothesis] = useState("");
   const [sourceTool, setSourceTool] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const validDefault = defaultParentId && designs.some((design) => design.id === defaultParentId)
+      ? defaultParentId
+      : "";
+    setParentId(validDefault);
+    setMessage(null);
+  }, [open, slug, defaultParentId]);
 
   if (!open) return null;
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage(null);
     try {
+      const validParentId = parentId && designs.some((design) => design.id === parentId)
+        ? parentId
+        : null;
       const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/designs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, origin, sequence: sequence || null, parent_design_id: parentId || null, hypothesis: hypothesis || null, source_tool: sourceTool || null }),
+        body: JSON.stringify({ name, origin, sequence: sequence || null, parent_design_id: validParentId, hypothesis: hypothesis || null, source_tool: sourceTool || null }),
       }));
       onUpdated(payload.project as ProjectDetail, payload.design_id as string);
-      setName(""); setSequence(""); setHypothesis(""); setSourceTool("");
+      setName(""); setSequence(""); setHypothesis(""); setSourceTool(""); setParentId("");
       onClose();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not register design."); }
     finally { setBusy(false); }
@@ -100,6 +112,7 @@ export function RegisterDesignDialog({ open, onClose, slug, designs, defaultPare
       <section className="modal-dialog" role="dialog" aria-modal="true" aria-label="Register design">
         <div className="modal-header"><div><p className="eyebrow">Workspace action</p><h2>Register design</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
         <form className="action-form" onSubmit={submit}>
+          <p className="muted">Adds a new design node to <b>{slug}</b>.</p>
           <div className="two-col-form"><label>Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label><label>Origin<select value={origin} onChange={(e) => setOrigin(e.target.value)}><option value="imported_design">Imported design</option><option value="sequence_design">Sequence design</option><option value="generated_backbone">Generated backbone</option><option value="de_novo">De novo</option><option value="point_mutation">Point mutation</option><option value="natural_sequence">Natural sequence</option></select></label></div>
           <label>Parent<select value={parentId} onChange={(e) => setParentId(e.target.value)}><option value="">No parent</option>{designs.map((design) => <option key={design.id} value={design.id}>{design.lineage_label}</option>)}</select></label>
           <label>Sequence <span className="optional-label">optional</span><textarea className="mono" value={sequence} onChange={(e) => setSequence(e.target.value)} /></label>
