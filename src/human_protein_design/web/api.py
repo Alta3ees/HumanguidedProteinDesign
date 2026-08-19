@@ -20,7 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from human_protein_design.archive import DesignProject, EvidenceEntry
 
 
-PROJECTS_ROOT = Path(os.environ.get("HGD_PROJECTS_ROOT", "data/projects"))
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_PROJECTS_ROOT = REPOSITORY_ROOT / "data" / "projects"
+PROJECTS_ROOT = Path(os.environ.get("HGD_PROJECTS_ROOT", DEFAULT_PROJECTS_ROOT)).expanduser().resolve()
 ALLOWED_EVIDENCE_TYPES = {"computational", "experimental", "literature", "note"}
 
 app = FastAPI(
@@ -117,7 +119,7 @@ def _project_payload(project: DesignProject, slug: str) -> dict[str, Any]:
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "projects_root": str(PROJECTS_ROOT)}
 
 
 @app.get("/api/projects")
