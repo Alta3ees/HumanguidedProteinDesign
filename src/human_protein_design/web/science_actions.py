@@ -1,0 +1,270 @@
+"""Scientific actions exposed by the v0.4 local web workspace.
+
+The CLI scripts and browser UI call the same underlying archive/scoring code.  This
+module contains the state-changing scientific operations that should not live in
+FastAPI route handlers or React components.
+"""
+
+from __future__ import annotations
+
+import csv
+from dataclasses import asdict
+from pathlib import Path
+
+import pyrosetta
+
+from human_protein_design.archive import (
+    Decision,
+    DesignProject,
+    EvidenceEntry,
+    StructureModel,
+    export_obsidian_vault,
+    export_project_summary,
+)
+from human_protein_design.fasta import validate_amino_acid
+from human_protein_design.mutation import get_spatial_neighbors
+from human_protein_design.scan import scan_position
+from human_protein_design.scoring import (
+    get_standard_score_function,
+    initialize_pyrosetta,
+)
+from human_protein_design.session import DesignSession
+
+
+def resolve_design_structure(project: DesignProject, design_id: str) -> Path:
+    """Return the newest usable structure for a design."""
+    design = project.archive.get_design(design_id)
+    structures = project.archive.get_design_structures(design_id)
+    stored: str | None = None
+    if structures:
+        newest = max(structures, key=lambda item: item.created_at)
+        stored = newest.structure_path
+    elif design.structure_path:
+        stored = design.structure_path
+    if not stored:
+        raise ValueError("This design has no structure. Attach a structure before running PyRosetta.")
+
+    candidate = Path(stored)
+    if not candidate.is_absolute():
+        candidate = project.root_dir / candidate
+    candidate = candidate.resolve()
+    if not candidate.is_file():
+        raise ValueError(f"Stored structure could not be found: {stored}")
+    return candidate
+
+
+def _load_pose(project: DesignProject, design_id: str):
+    initialize_pyrosetta()
+    structure_path = resolve_design_structure(project, design_id)
+    try:
+        pose = pyrosetta.pose_from_file(str(structure_path))
+    except Exception as error:  # PyRosetta raises several wrapped C++ exception types.
+        raise ValueError(f"PyRosetta could not load {structure_path.name}: {error}") from error
+    return pose, structure_path
+
+
+def run_position_scan(
+    project: DesignProject,
+    *,
+    design_id: str,
+    position: int,
+    radius: float = 8.0,
+) -> tuple[EvidenceEntry, list[dict[str, float | int | str]], list[int], str]:
+    """Evaluate all 19 substitutions at one residue and archive the ranking."""
+    pose, _ = _load_pose(project, design_id)
+    if position < 1 or position > pose.total_residue():
+        raise ValueError(f"Position must be between 1 and {pose.total_residue()}.")
+    if radius <= 0:
+        raise ValueError("Scan radius must be greater than zero.")
+
+    score_function = get_standard_score_function()
+    wt_aa = pose.residue(position).name1()
+    results = scan_position(
+        pose,
+        position=position,
+        score_function=score_function,
+        radius=radius,
+    )
+    neighbors = get_spatial_neighbors(
+        pose,
+        center_position=position,
+        radius=radius,
+    )
+
+    scan_dir = project.evidence_dir / "mutation_scans"
+    scan_dir.mkdir(parents=True, exist_ok=True)
+    base = f"{project.archive.get_design_label(design_id)}_{wt_aa}{position}_scan"
+    safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in base).strip("_")
+    output = scan_dir / f"{safe or f'position_{position}_scan'}.csv"
+    counter = 2
+    while output.exists():
+        output = scan_dir / f"{safe}_{counter}.csv"
+        counter += 1
+
+    fieldnames: list[str] = []
+    for row in results:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    with output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results)
+
+    relative = str(output.relative_to(project.root_dir))
+    evidence = EvidenceEntry(
+        source_type="computational",
+        source_name="PyRosetta saturation scan",
+        summary=f"All substitutions scanned at {wt_aa}{position} ({radius:.1f} Å local protocol).",
+        design_id=design_id,
+        file_paths=[relative],
+        data={
+            "analysis_type": "position_saturation_scan",
+            "position": position,
+            "wt_aa": wt_aa,
+            "radius_angstrom": radius,
+            "neighbors": neighbors,
+            "results": results,
+            "best_mutation": results[0]["mutation"] if results else None,
+            "best_delta_score": results[0]["delta_score"] if results else None,
+        },
+    )
+    project.archive.add_evidence(evidence)
+    project.save()
+    return evidence, results, neighbors, relative
+
+
+def evaluate_point_mutation(
+    project: DesignProject,
+    *,
+    design_id: str,
+    position: int,
+    mutant_aa: str,
+    hypothesis: str,
+    objective: str,
+    design_name: str | None = None,
+    radius: float = 8.0,
+) -> tuple[str, dict[str, object]]:
+    """Evaluate one point mutation and persist it as an undecided child design."""
+    pose, _ = _load_pose(project, design_id)
+    if position < 1 or position > pose.total_residue():
+        raise ValueError(f"Position must be between 1 and {pose.total_residue()}.")
+    mutant_aa = validate_amino_acid(mutant_aa)
+    if radius <= 0:
+        raise ValueError("Mutation radius must be greater than zero.")
+
+    session = DesignSession(
+        pose=pose,
+        score_function=get_standard_score_function(),
+        archive=project.archive,
+        current_design_id=design_id,
+        archive_path=project.archive_path,
+        structures_dir=project.structures_dir,
+        radius=radius,
+    )
+    mutant_pose, result, analysis, context = session.evaluate_mutation(
+        position,
+        mutant_aa,
+        hypothesis=hypothesis.strip(),
+        objective=objective.strip(),
+        design_name=(design_name or "").strip() or None,
+    )
+    candidate_id = session.pending_design_id
+    if candidate_id is None:
+        raise RuntimeError("PyRosetta evaluation did not produce a candidate design.")
+
+    candidate = session.archive.get_design(candidate_id)
+    # Promote the generated PDB from the legacy design field to a first-class
+    # StructureModel so the browser/PyMOL workflow sees it immediately.
+    if candidate.structure_path:
+        structure_path = Path(candidate.structure_path).resolve()
+        try:
+            relative = str(structure_path.relative_to(project.root_dir.resolve()))
+        except ValueError:
+            relative = str(structure_path)
+        candidate.structure_path = relative
+        session.archive.add_structure(
+            StructureModel(
+                design_id=candidate_id,
+                structure_path=relative,
+                source="rosetta",
+                method="PyRosetta local mutation / repack / minimization",
+                notes=f"Generated during evaluation of {result.mutation}.",
+            )
+        )
+
+    project.archive = session.archive
+    project.save()
+    payload: dict[str, object] = {
+        "mutation": result.mutation,
+        "position": result.position,
+        "wt_aa": result.wt_aa,
+        "mutant_aa": result.mutant_aa,
+        "previous_score": result.previous_score,
+        "mutant_score": result.mutant_score,
+        "delta_score": result.delta_score,
+        "parent_score_terms": analysis.wt_terms,
+        "mutant_score_terms": analysis.mutant_terms,
+        "delta_score_terms": analysis.delta_terms,
+        "improved_terms": analysis.improved_terms,
+        "worsened_terms": analysis.worsened_terms,
+        "context": {
+            "position": context.position,
+            "wt_aa": context.wt_aa,
+            "mutant_aa": context.mutant_aa,
+            "radius_angstrom": radius,
+            "nearby_residues": [asdict(item) for item in context.nearby_residues],
+        },
+    }
+    return candidate_id, payload
+
+
+def decide_candidate(
+    project: DesignProject,
+    *,
+    candidate_design_id: str,
+    outcome: str,
+    rationale: str,
+    user_note: str | None = None,
+) -> Decision:
+    """Record the scientist's decision for a mutation candidate."""
+    if outcome not in {"accepted", "rejected", "deferred"}:
+        raise ValueError("Decision must be accepted, rejected, or deferred.")
+    candidate = project.archive.get_design(candidate_design_id)
+    parent_id = candidate.parent_design_id
+    if parent_id is None:
+        raise ValueError("Root designs cannot be accepted/rejected as mutation candidates.")
+
+    existing = project.archive.get_design_decisions(candidate_design_id)
+    if existing:
+        raise ValueError("This candidate already has a recorded decision.")
+
+    decision = Decision(
+        parent_design_id=parent_id,
+        candidate_design_id=candidate_design_id,
+        outcome=outcome,  # type: ignore[arg-type]
+        hypothesis=str(candidate.metadata.get("hypothesis", "")),
+        objective=str(candidate.metadata.get("objective", "")),
+        rationale=rationale.strip(),
+        user_note=(user_note or "").strip() or None,
+    )
+    project.archive.add_decision(decision)
+    candidate.status = "active" if outcome == "accepted" else "deprioritized"
+    project.save()
+    return decision
+
+
+def export_obsidian(project: DesignProject) -> Path:
+    """Export the current archive as an Obsidian-friendly Markdown vault."""
+    output = project.root_dir / "obsidian"
+    export_obsidian_vault(archive=project.archive, output_dir=output)
+    return output
+
+
+def generate_project_summary(project: DesignProject) -> Path:
+    """Generate/update the project-wide Markdown scientific summary."""
+    return export_project_summary(
+        archive=project.archive,
+        output_path=project.root_dir / "PROJECT_SUMMARY.md",
+        project_name=project.name,
+    )
