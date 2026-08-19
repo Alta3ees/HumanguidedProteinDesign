@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import type { DesignNode, ProjectDetail } from "./types";
 
 type ScanRow = {
@@ -27,7 +27,19 @@ type StructureScore = {
   residue_count: number;
   structure_file: string;
   score_terms: Record<string, number>;
+  design_sequence_length?: number | null;
+  structure_sequence_length?: number;
+  sequence_match?: boolean;
+  sequence_warning?: string | null;
 };
+
+const AMINO_ACIDS = [
+  ["A", "Alanine"], ["C", "Cysteine"], ["D", "Aspartate"], ["E", "Glutamate"],
+  ["F", "Phenylalanine"], ["G", "Glycine"], ["H", "Histidine"], ["I", "Isoleucine"],
+  ["K", "Lysine"], ["L", "Leucine"], ["M", "Methionine"], ["N", "Asparagine"],
+  ["P", "Proline"], ["Q", "Glutamine"], ["R", "Arginine"], ["S", "Serine"],
+  ["T", "Threonine"], ["V", "Valine"], ["W", "Tryptophan"], ["Y", "Tyrosine"],
+] as const;
 
 async function responseJson(response: Response) {
   const payload = await response.json().catch(() => ({}));
@@ -69,6 +81,11 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
 
   const hasStructure = design.structures.length > 0 || Boolean(design.structure_path);
   const maxPosition = design.sequence?.length ?? undefined;
+  const numericPosition = Number(position);
+  const currentResidue = useMemo(() => {
+    if (!design.sequence || !Number.isInteger(numericPosition) || numericPosition < 1 || numericPosition > design.sequence.length) return null;
+    return design.sequence[numericPosition - 1];
+  }, [design.sequence, numericPosition]);
 
   async function scoreStructure() {
     setScoreBusy(true); setMessage(null); setStructureScore(null);
@@ -110,6 +127,10 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
 
   async function evaluateMutation(event: FormEvent) {
     event.preventDefault();
+    if (currentResidue === mutantAa) {
+      setMessage(`Position ${position} is already ${mutantAa}. Choose a different amino acid.`);
+      return;
+    }
     setMutationBusy(true); setMessage(null); setEvaluation(null); setCandidateId(null);
     try {
       const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/designs/${encodeURIComponent(design.id)}/evaluate-mutation`, {
@@ -150,38 +171,40 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   const scoreTerms = structureScore?.score_terms ? Object.entries(structureScore.score_terms) : [];
 
   return <section className="detail-card wide-section scientific-workbench">
-    <div className="detail-card-header"><div><p className="eyebrow">PyRosetta design tools</p><h3>Mutation workbench</h3></div><span>local repack + minimization · {radius || "8"} Å</span></div>
+    <div className="detail-card-header workbench-title"><div><p className="eyebrow">PyRosetta design tools</p><h3>Mutation workbench</h3><p className="workbench-intro">Use a structure-backed design to score the current model, test one hypothesis-driven substitution, or screen every amino acid at a position. Every calculation is retained in the project archive.</p></div><span>local repack + minimization · {radius || "8"} Å</span></div>
     {!hasStructure && <p className="form-error">Attach a structure to this design before running PyRosetta.</p>}
-    <div className="baseline-score-bar"><div><p className="eyebrow">Baseline</p><b>Score the current structure before proposing changes</b></div><button className="secondary-button" type="button" disabled={!hasStructure || scoreBusy} onClick={scoreStructure}>{scoreBusy ? "Scoring…" : "Score current structure"}</button></div>
-    {structureScore && <div className="baseline-score-result"><div className="score-grid"><div><span>Total score</span><b>{structureScore.total_score.toFixed(2)} REU</b></div><div><span>Residues</span><b>{structureScore.residue_count}</b></div><div><span>Structure</span><b className="mono">{structureScore.structure_file}</b></div></div>{scoreTerms.length > 0 && <div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Term</th><th>Weighted score</th></tr></thead><tbody>{scoreTerms.map(([term, value]) => <tr key={term}><td className="mono">{term}</td><td>{Number(value).toFixed(3)}</td></tr>)}</tbody></table></div>}</div>}
+
+    <div className="baseline-score-bar"><div><p className="eyebrow">1 · Baseline structure</p><b>Score the currently attached structure</b><p>Useful before mutations: establishes the Rosetta energy of the model you are actually evaluating. This does not modify the design.</p></div><button className="secondary-button" type="button" disabled={!hasStructure || scoreBusy} onClick={scoreStructure}>{scoreBusy ? "Scoring…" : "Score current structure"}</button></div>
+    {structureScore && <div className="baseline-score-result"><div className="score-grid"><div><span>Total score</span><b>{structureScore.total_score.toFixed(2)} REU</b></div><div><span>Structure residues</span><b>{structureScore.residue_count}</b></div><div><span>Structure</span><b className="mono">{structureScore.structure_file}</b></div></div>{structureScore.sequence_warning && <div className="compatibility-warning"><b>Structure does not match this design</b><p>{structureScore.sequence_warning}</p><span>Scoring is still valid for the PDB itself, but mutation design is disabled until you attach the matching structure.</span></div>}{scoreTerms.length > 0 && <div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Term</th><th>Weighted score</th></tr></thead><tbody>{scoreTerms.map(([term, value]) => <tr key={term}><td className="mono">{term}</td><td>{Number(value).toFixed(3)}</td></tr>)}</tbody></table></div>}</div>}
+
     <div className="workbench-grid">
-      <form className="tool-card" onSubmit={evaluateMutation}>
-        <div><p className="eyebrow">Human-guided mutation</p><h4>Evaluate one substitution</h4></div>
-        <div className="three-col-form">
-          <label>Position<input type="number" min="1" max={maxPosition} value={position} onChange={(e) => setPosition(e.target.value)} required /></label>
-          <label>Mutant AA<input className="mono" maxLength={1} value={mutantAa} onChange={(e) => setMutantAa(e.target.value.toUpperCase())} required /></label>
-          <label>Radius (Å)<input type="number" min="1" step="0.5" value={radius} onChange={(e) => setRadius(e.target.value)} /></label>
+      <form className="tool-card mutation-tool-card" onSubmit={evaluateMutation}>
+        <div className="tool-card-heading"><p className="eyebrow">2 · Human-guided mutation</p><h4>Evaluate one substitution</h4><p>Use this when you already have a specific mutation in mind. HGD creates a child candidate, locally repacks/minimizes around the mutation, compares Rosetta energies, and waits for your Accept / Defer / Reject decision.</p></div>
+        <div className="three-col-form guided-fields">
+          <label>Position<input type="number" min="1" max={maxPosition} value={position} onChange={(e) => setPosition(e.target.value)} required /><small className="field-help">Residue number in this design{currentResidue ? ` · currently ${currentResidue}${position}` : ""}.</small></label>
+          <label>Mutate to<select className="mono" value={mutantAa} onChange={(e) => setMutantAa(e.target.value)}>{AMINO_ACIDS.map(([code, name]) => <option key={code} value={code}>{code} — {name}</option>)}</select><small className="field-help">Choose the new amino acid. The current residue is excluded logically at evaluation time.</small></label>
+          <label>Local radius (Å)<input type="number" min="1" step="0.5" value={radius} onChange={(e) => setRadius(e.target.value)} /><small className="field-help">Residues within this distance can repack. 8 Å is the default local environment.</small></label>
         </div>
-        <label>Hypothesis<textarea value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} placeholder="What do you expect this mutation to do?" /></label>
-        <label>Objective<textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="What are you trying to improve or test?" /></label>
-        <label>Candidate name <span className="optional-label">optional</span><input value={designName} onChange={(e) => setDesignName(e.target.value)} /></label>
+        <label>Hypothesis<textarea value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} placeholder="Example: replacing Leu with Trp may improve hydrophobic packing in this core." /><small className="field-help">Write what you expect the mutation to change before seeing the score. This becomes part of provenance.</small></label>
+        <label>Objective<textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Example: improve local stability without disrupting the beta sheet." /><small className="field-help">The broader property or question you are trying to improve/test.</small></label>
+        <label>Candidate name <span className="optional-label">optional</span><input value={designName} onChange={(e) => setDesignName(e.target.value)} placeholder={currentResidue ? `${currentResidue}${position}${mutantAa}` : "Short human-readable label"} /><small className="field-help">Only for readability in the design tree. The mutation itself is stored separately.</small></label>
         <button className="primary-button" disabled={!hasStructure || mutationBusy}>{mutationBusy ? "Running PyRosetta…" : "Evaluate mutation"}</button>
         {evaluation && <div className="evaluation-result">
           <div className="score-grid"><div><span>Mutation</span><b className="mono">{evaluation.mutation}</b></div><div><span>Parent</span><b>{evaluation.previous_score.toFixed(2)}</b></div><div><span>Mutant</span><b>{evaluation.mutant_score.toFixed(2)}</b></div><div><span>ΔScore</span><b className={evaluation.delta_score <= 0 ? "score-good" : "score-bad"}>{evaluation.delta_score >= 0 ? "+" : ""}{evaluation.delta_score.toFixed(2)} REU</b></div></div>
-          <label>Decision rationale<textarea value={rationale} onChange={(e) => setRationale(e.target.value)} placeholder="Why accept, reject, or defer this candidate?" /></label>
+          <label>Decision rationale<textarea value={rationale} onChange={(e) => setRationale(e.target.value)} placeholder="Explain why this evidence is sufficient to accept, reject, or defer the candidate." /></label>
           <div className="decision-actions"><button type="button" className="primary-button" onClick={() => decide("accepted")}>Accept</button><button type="button" className="secondary-button" onClick={() => decide("deferred")}>Defer</button><button type="button" className="danger-button" onClick={() => decide("rejected")}>Reject</button></div>
         </div>}
       </form>
 
-      <form className="tool-card" onSubmit={runScan}>
-        <div><p className="eyebrow">Systematic scan</p><h4>Try every amino acid here</h4></div>
-        <p className="muted">Runs all 19 possible substitutions at one position using the same local PyRosetta preparation protocol, ranks them by ΔScore, and archives the result as computational evidence.</p>
-        <div className="two-col-form"><label>Position<input type="number" min="1" max={maxPosition} value={position} onChange={(e) => setPosition(e.target.value)} required /></label><label>Radius (Å)<input type="number" min="1" step="0.5" value={radius} onChange={(e) => setRadius(e.target.value)} /></label></div>
+      <form className="tool-card scan-tool-card" onSubmit={runScan}>
+        <div className="tool-card-heading"><p className="eyebrow">3 · Systematic position scan</p><h4>Try every amino acid here</h4><p>Use this when you know <em>where</em> you want to explore but not <em>which amino acid</em> to choose. HGD tests all 19 non-WT substitutions under the same local protocol and ranks them by ΔScore.</p></div>
+        <div className="two-col-form guided-fields"><label>Position<input type="number" min="1" max={maxPosition} value={position} onChange={(e) => setPosition(e.target.value)} required /><small className="field-help">The single site to saturate{currentResidue ? ` · WT residue ${currentResidue}${position}` : ""}.</small></label><label>Local radius (Å)<input type="number" min="1" step="0.5" value={radius} onChange={(e) => setRadius(e.target.value)} /><small className="field-help">Use the same radius when comparing scans between positions.</small></label></div>
+        <div className="scan-explainer"><b>How to read the result</b><span>More negative ΔScore = Rosetta prefers that substitution relative to the locally prepared WT reference. Treat it as evidence, not an automatic design decision.</span></div>
         <button className="secondary-button" disabled={!hasStructure || scanBusy}>{scanBusy ? "Scanning 19 substitutions…" : "Scan all substitutions"}</button>
         {scanRows.length > 0 && <div className="scan-results"><div className="scan-result-header"><b>{scanRows.length} substitutions ranked by ΔScore</b>{scanPath && <a className="mono" href={localFileUrl(slug, scanPath)} target="_blank" rel="noreferrer">Complete CSV ↗</a>}</div><div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Rank</th><th>Mutation</th><th>Total</th><th>ΔScore</th><th>fa_atr</th><th>fa_rep</th><th>fa_sol</th><th>fa_elec</th><th /></tr></thead><tbody>{scanRows.map((row, index) => <tr key={row.mutation}><td>{index + 1}</td><td className="mono">{row.mutation}</td><td>{Number(row.total_score).toFixed(3)}</td><td className={Number(row.delta_score) <= 0 ? "score-good" : "score-bad"}>{Number(row.delta_score) >= 0 ? "+" : ""}{Number(row.delta_score).toFixed(3)}</td><td>{scoreCell(row, "fa_atr")}</td><td>{scoreCell(row, "fa_rep")}</td><td>{scoreCell(row, "fa_sol")}</td><td>{scoreCell(row, "fa_elec")}</td><td><button type="button" className="mini-button" onClick={() => useScanCandidate(row)}>Evaluate</button></td></tr>)}</tbody></table></div></div>}
       </form>
     </div>
-    {message && <p className="form-message">{message}</p>}
+    {message && <p className="form-message workbench-message">{message}</p>}
   </section>;
 }
 
