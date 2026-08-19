@@ -1,13 +1,20 @@
-"""Cross-platform launcher for the local HGD research workspace."""
+"""Cross-platform launcher for the complete local HGD research workspace."""
 
 from __future__ import annotations
 
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
+import threading
+import webbrowser
 from pathlib import Path
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+FRONTEND_DIR = REPOSITORY_ROOT / "frontend"
+FRONTEND_DIST = FRONTEND_DIR / "dist"
 
 
 def _candidate_pymol_paths() -> list[Path]:
@@ -84,14 +91,7 @@ def _write_windows_shim(directory: Path, pymol: Path) -> Path:
 
 
 def prepare_pymol_for_backend() -> Path | None:
-    """Make a local PyMOL installation visible to the backend launcher.
-
-    HGD accepts licensed or open-source PyMOL. The user can select an exact
-    executable with ``HGD_PYMOL``. macOS application bundles and Windows
-    ``PyMOLWin.exe`` installs are normalized to the ``pymol`` command expected
-    by the API. When HGD itself runs inside Flatpak on Linux, a small shim uses
-    ``flatpak-spawn --host`` so the GUI opens on the real desktop.
-    """
+    """Make a local PyMOL installation visible to the backend launcher."""
     pymol = find_pymol()
     if pymol is None:
         return None
@@ -114,12 +114,82 @@ def prepare_pymol_for_backend() -> Path | None:
     return pymol
 
 
+def _frontend_inputs() -> list[Path]:
+    """Return files whose modification should invalidate the compiled frontend."""
+    candidates = [
+        FRONTEND_DIR / "package.json",
+        FRONTEND_DIR / "package-lock.json",
+        FRONTEND_DIR / "vite.config.ts",
+        FRONTEND_DIR / "tsconfig.json",
+        FRONTEND_DIR / "index.html",
+    ]
+    source_dir = FRONTEND_DIR / "src"
+    if source_dir.is_dir():
+        candidates.extend(path for path in source_dir.rglob("*") if path.is_file())
+    return [path for path in candidates if path.is_file()]
+
+
+def frontend_build_is_current() -> bool:
+    """Return whether an existing React build is newer than its source files."""
+    index = FRONTEND_DIST / "index.html"
+    if not index.is_file():
+        return False
+    built_at = index.stat().st_mtime
+    return all(path.stat().st_mtime <= built_at for path in _frontend_inputs())
+
+
+def ensure_frontend_build() -> Path:
+    """Build the React application when missing or stale.
+
+    Normal users only run ``hgd``. Node/npm are part of the HGD environment, so
+    the launcher can perform the one-time frontend setup automatically. Existing
+    builds are reused until frontend source files change.
+    """
+    if frontend_build_is_current():
+        return FRONTEND_DIST
+
+    package_json = FRONTEND_DIR / "package.json"
+    if not package_json.is_file():
+        raise SystemExit(f"HGD frontend source was not found at {FRONTEND_DIR}.")
+
+    npm = shutil.which("npm")
+    if npm is None:
+        raise SystemExit(
+            "HGD needs npm to build the local interface. Update/create the environment from environment.yml and retry."
+        )
+
+    try:
+        if not (FRONTEND_DIR / "node_modules").is_dir():
+            print("HGD: installing frontend dependencies (first launch only)…")
+            subprocess.run([npm, "install"], cwd=FRONTEND_DIR, check=True)
+        print("HGD: building local interface…")
+        subprocess.run([npm, "run", "build"], cwd=FRONTEND_DIR, check=True)
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f"HGD frontend build failed with exit code {error.returncode}.") from error
+
+    index = FRONTEND_DIST / "index.html"
+    if not index.is_file():
+        raise SystemExit("HGD frontend build finished without creating frontend/dist/index.html.")
+    return FRONTEND_DIST
+
+
+def _open_browser(url: str) -> None:
+    """Open HGD after Uvicorn has had a moment to bind its local socket."""
+    try:
+        webbrowser.open(url)
+    except Exception:
+        # Browser launch is convenience only; the terminal still prints the URL.
+        pass
+
+
 def main() -> None:
-    """Start the local HGD API with platform-aware PyMOL discovery."""
+    """Build the UI if needed, then start the complete local HGD workspace."""
     try:
         import uvicorn
     except ImportError as error:
         raise SystemExit('Install the web dependencies first: python -m pip install -e ".[web]"') from error
+
+    ensure_frontend_build()
 
     pymol = prepare_pymol_for_backend()
     if pymol:
@@ -128,12 +198,23 @@ def main() -> None:
         print("HGD: PyMOL not detected. Structure files remain usable, but 'Open in PyMOL' will be unavailable.")
         print("     Install licensed PyMOL, set HGD_PYMOL, or install pymol-open-source.")
 
-    print("HGD: starting local workspace backend at http://127.0.0.1:8000")
+    host = "127.0.0.1"
+    try:
+        port = int(os.environ.get("HGD_PORT", "8000"))
+    except ValueError as error:
+        raise SystemExit("HGD_PORT must be an integer.") from error
+    url = f"http://{host}:{port}"
+
+    print(f"HGD: opening complete local workspace at {url}")
+    print("HGD: press Ctrl+C to stop it.")
+    if os.environ.get("HGD_NO_BROWSER", "").lower() not in {"1", "true", "yes"}:
+        threading.Timer(1.0, _open_browser, args=(url,)).start()
+
     uvicorn.run(
         "human_protein_design.web.api:app",
-        host="127.0.0.1",
-        port=8000,
-        reload=True,
+        host=host,
+        port=port,
+        reload=False,
     )
 
 
