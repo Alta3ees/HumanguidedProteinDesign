@@ -13,6 +13,16 @@ DecisionOutcome = Literal["accepted", "rejected", "deferred"]
 DesignStatus = Literal[
     "active",
     "deprioritized",
+    "superseded",
+]
+
+DesignOrigin = Literal[
+    "natural_sequence",
+    "point_mutation",
+    "de_novo",
+    "generated_backbone",
+    "sequence_design",
+    "imported_design",
 ]
 
 EvidenceSourceType = Literal[
@@ -20,6 +30,16 @@ EvidenceSourceType = Literal[
     "experimental",
     "literature",
     "note",
+]
+
+StructureSource = Literal[
+    "experimental",
+    "alphafold",
+    "colabfold",
+    "rfdiffusion",
+    "rosetta",
+    "user",
+    "other",
 ]
 
 
@@ -34,10 +54,81 @@ def new_id(prefix: str) -> str:
 
 
 @dataclass
-class Design:
-    """A protein design represented as a node in the design tree."""
+class ProjectObjective:
+    """A scientific objective that may exist before any molecule does."""
 
-    sequence: str
+    description: str
+    constraints: list[str] = field(default_factory=list)
+
+    id: str = field(default_factory=lambda: new_id("objective"))
+    created_at: str = field(default_factory=utc_now)
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Target:
+    """Optional molecular target, for example in binder design."""
+
+    name: str
+
+    sequence: str | None = None
+    structure_path: str | None = None
+    notes: str | None = None
+
+    id: str = field(default_factory=lambda: new_id("target"))
+    created_at: str = field(default_factory=utc_now)
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class StructureModel:
+    """A structural hypothesis associated with a design.
+
+    A design can have zero, one, or many structure models. Structure provenance
+    and confidence are retained separately from the molecular design itself.
+    """
+
+    design_id: str
+    structure_path: str
+    source: StructureSource
+
+    method: str | None = None
+
+    id: str = field(default_factory=lambda: new_id("structure"))
+    created_at: str = field(default_factory=utc_now)
+
+    mean_plddt: float | None = None
+    ptm: float | None = None
+    iptm: float | None = None
+    pae_path: str | None = None
+
+    notes: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Design:
+    """A protein design represented as a node in the design tree.
+
+    v0.3.5 makes sequence optional. This supports backbone-only de novo designs
+    and lets projects exist before a sequence or trusted structure is available.
+
+    `structure_path` is kept as a legacy compatibility field for v0.3 archives.
+    New code should prefer first-class StructureModel records.
+    """
+
+    sequence: str | None = None
 
     id: str = field(default_factory=lambda: new_id("design"))
     created_at: str = field(default_factory=utc_now)
@@ -45,12 +136,24 @@ class Design:
     parent_design_id: str | None = None
 
     status: DesignStatus = "active"
+    origin: DesignOrigin = "imported_design"
 
     name: str | None = None
 
+    # Legacy v0.3 compatibility. Prefer StructureModel in new workflows.
     structure_path: str | None = None
 
+    objective_id: str | None = None
+    target_id: str | None = None
+
+    hypothesis: str | None = None
+
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.sequence is not None:
+            normalized = "".join(self.sequence.split()).upper()
+            self.sequence = normalized or None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -84,7 +187,7 @@ class Decision:
 
 @dataclass
 class EvidenceEntry:
-    """A dated piece of evidence associated with a design or decision."""
+    """A dated piece of evidence associated with scientific archive records."""
 
     source_type: EvidenceSourceType
     source_name: str
@@ -93,6 +196,8 @@ class EvidenceEntry:
 
     design_id: str | None = None
     decision_id: str | None = None
+    structure_id: str | None = None
+    target_id: str | None = None
 
     id: str = field(default_factory=lambda: new_id("evidence"))
     created_at: str = field(default_factory=utc_now)
