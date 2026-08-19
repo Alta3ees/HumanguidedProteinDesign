@@ -100,21 +100,36 @@ def test_preview_api_stays_project_local(tmp_path, monkeypatch):
     assert response.json()["rows"] == [["1", "2"]]
 
 
-def test_project_summary_and_obsidian_exports_are_web_actions(tmp_path, monkeypatch):
+def test_project_context_export_is_llm_ready(tmp_path, monkeypatch):
     projects_root = tmp_path / "projects"
-    project, _ = make_project(projects_root)
+    project, design = make_project(projects_root)
+    entry = EvidenceEntry(
+        source_type="experimental",
+        source_name="SEC",
+        summary="Monodisperse sample",
+        design_id=design.id,
+        data={"retention_volume_ml": 12.4},
+    )
+    project.archive.add_evidence(entry)
+    project.save()
+
     monkeypatch.setattr(api, "PROJECTS_ROOT", projects_root)
     client = TestClient(api.app)
 
-    summary = client.post("/api/projects/demo/export/summary")
-    assert summary.status_code == 200
-    summary_path = project.root_dir / summary.json()["file_path"]
-    assert summary_path.is_file()
+    response = client.post("/api/projects/demo/export/context")
+    assert response.status_code == 200
+    context_path = project.root_dir / response.json()["file_path"]
+    assert context_path.name == "PROJECT_CONTEXT.md"
+    assert context_path.is_file()
 
-    obsidian = client.post("/api/projects/demo/export/obsidian")
-    assert obsidian.status_code == 200
-    assert obsidian.json()["files"]
-    assert (project.root_dir / obsidian.json()["output_dir"]).is_dir()
+    text = context_path.read_text(encoding="utf-8")
+    assert "# demo — HGD Project Context" in text
+    assert "## Complete machine-readable archive" in text
+    assert '"retention_volume_ml": 12.4' in text
+    assert f'"id": "{design.id}"' in text
+
+    assert client.post("/api/projects/demo/export/obsidian").status_code == 404
+    assert client.post("/api/projects/demo/export/summary").status_code == 404
 
 
 def test_score_structure_route_archives_scientific_result(tmp_path, monkeypatch):
