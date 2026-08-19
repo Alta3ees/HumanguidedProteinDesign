@@ -27,6 +27,7 @@ from human_protein_design.web.actions import (
     register_design,
     safe_filename,
 )
+from human_protein_design.web.design_delete import delete_leaf_design
 from human_protein_design.web.file_preview import preview_file
 from human_protein_design.web.science_actions import (
     decide_candidate,
@@ -281,6 +282,18 @@ def register_design_endpoint(slug: str, request: RegisterDesignRequest) -> dict[
     except (ValueError, KeyError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {"design_id": design.id, "project": _project_payload(project, slug)}
+
+
+@app.delete("/api/projects/{slug}/designs/{design_id}")
+def delete_design_endpoint(slug: str, design_id: str) -> dict[str, Any]:
+    project = _load_project(slug)
+    try:
+        result = delete_leaf_design(project, design_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {**result, "project": _project_payload(project, slug)}
 
 
 @app.post("/api/projects/{slug}/designs/{design_id}/structures")
