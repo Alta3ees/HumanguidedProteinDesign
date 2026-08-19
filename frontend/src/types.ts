@@ -56,6 +56,7 @@ export type DesignNode = {
   hypothesis?: string | null;
   metadata?: Record<string, unknown>;
   decision?: Decision | null;
+  decisions: Decision[];
   structures: StructureModel[];
   evidence: EvidenceEntry[];
   evidence_counts: EvidenceCounts;
