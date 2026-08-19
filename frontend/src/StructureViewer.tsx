@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ProjectDetail, StructureModel } from "./types";
+import ConfirmDialog from "./ConfirmDialog";
 import "./structure-viewer.css";
 
 function localFileUrl(slug: string, path: string): string {
@@ -21,6 +22,8 @@ export default function StructureViewer({
   const [selectedId, setSelectedId] = useState(structures[0]?.id ?? "");
   const [pymolBusy, setPymolBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pymolMessage, setPymolMessage] = useState<string | null>(null);
 
   const selected = useMemo(
@@ -55,10 +58,8 @@ export default function StructureViewer({
 
   async function deleteSelectedStructure() {
     if (!selected) return;
-    const filename = selected.structure_path.split("/").pop() ?? selected.structure_path;
-    if (!window.confirm(`Delete structure "${filename}" from this design?\n\nThe project-local structure file will also be deleted. Historical evidence will be kept, but marked as referring to a removed structure.`)) return;
-
     setDeleteBusy(true);
+    setDeleteError(null);
     setPymolMessage(null);
     try {
       const response = await fetch(
@@ -69,9 +70,10 @@ export default function StructureViewer({
       if (!response.ok) throw new Error(payload.detail ?? "Could not delete structure.");
       const remaining = structures.filter((structure) => structure.id !== selected.id);
       setSelectedId(remaining[0]?.id ?? "");
+      setDeleteOpen(false);
       onUpdated(payload.project as ProjectDetail);
     } catch (error) {
-      setPymolMessage(error instanceof Error ? error.message : "Could not delete structure.");
+      setDeleteError(error instanceof Error ? error.message : "Could not delete structure.");
     } finally {
       setDeleteBusy(false);
     }
@@ -99,6 +101,7 @@ export default function StructureViewer({
                 onChange={(event) => {
                   setSelectedId(event.target.value);
                   setPymolMessage(null);
+                  setDeleteError(null);
                 }}
               >
                 {structures.map((structure, index) => (
@@ -126,7 +129,7 @@ export default function StructureViewer({
           <button
             className="danger-button structure-delete-button"
             type="button"
-            onClick={deleteSelectedStructure}
+            onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
             disabled={deleteBusy || pymolBusy}
           >
             {deleteBusy ? "Deleting…" : "Delete structure"}
@@ -142,6 +145,18 @@ export default function StructureViewer({
       </div>
 
       {pymolMessage && <div className="pymol-message pymol-message-block">{pymolMessage}</div>}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title={`Delete ${filename}?`}
+        message="This removes the structure model from this design. If the structure file is stored inside the project, HGD will remove that copied file too."
+        detail="Historical evidence is preserved and marked as referring to a removed structure. Files outside the HGD project are never deleted."
+        confirmLabel="Delete structure"
+        busy={deleteBusy}
+        error={deleteError}
+        onCancel={() => { setDeleteOpen(false); setDeleteError(null); }}
+        onConfirm={deleteSelectedStructure}
+      />
     </section>
   );
 }
