@@ -9,6 +9,8 @@ from pyrosetta.rosetta.protocols.minimization_packing import (
     PackRotamersMover,
 )
 
+from human_protein_design.fasta import validate_amino_acid
+
 
 AA_1_TO_3 = {
     "A": "ALA",
@@ -41,17 +43,12 @@ def mutate_pose(
 ) -> Pose:
     """Return a copy of pose with one residue mutated."""
 
-    mutant_aa = mutant_aa.upper()
+    mutant_aa = validate_amino_acid(mutant_aa)
 
     if not 1 <= position <= pose.total_residue():
         raise ValueError(
             f"Position {position} is outside the pose "
             f"(1-{pose.total_residue()})."
-        )
-
-    if mutant_aa not in AA_1_TO_3:
-        raise ValueError(
-            f"Invalid amino acid: {mutant_aa}"
         )
 
     mutant_pose = Pose()
@@ -262,10 +259,4 @@ def minimize_local_pose(
     minimizer.apply(
         minimized_pose
     )
-    #test
-    #print(
-    #f"Local relaxation around {center_position}: "
-    #f"{len(neighbors)} side-chain residues, "
-    #f"backbone {bb_start}-{bb_end}"
-    #)
     return minimized_pose
