@@ -21,7 +21,7 @@ from human_protein_design.archive import (
 )
 from human_protein_design.fasta import normalize_sequence
 
-STRUCTURE_SUFFIXES = {".pdb", ".cif", ".mmcif"}
+STRUCTURE_SUFFIXES = {".pdb", ".ent", ".cif", ".mmcif", ".pqr"}
 DESIGN_ORIGINS = {
     "natural_sequence",
     "point_mutation",
@@ -228,7 +228,7 @@ def attach_structure_file(
     if source not in STRUCTURE_SOURCES:
         raise ValueError(f"Unsupported structure source: {source}")
     if source_path.suffix.lower() not in STRUCTURE_SUFFIXES:
-        raise ValueError("Structure must be PDB, CIF, or mmCIF.")
+        raise ValueError("Structure must be PDB, ENT, CIF/mmCIF, or PQR.")
     if mean_plddt is not None and not 0 <= mean_plddt <= 100:
         raise ValueError("Mean pLDDT must be between 0 and 100.")
     for label, value in (("pTM", ptm), ("ipTM", iptm)):
