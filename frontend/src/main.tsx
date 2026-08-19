@@ -6,6 +6,7 @@ import "./styles.css";
 import "./actions.css";
 import "./protein-theme.css";
 import "./ui-fixes.css";
+import "./scientific-tools.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
