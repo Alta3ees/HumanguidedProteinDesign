@@ -26,10 +26,7 @@ DEFAULT_PROJECTS_ROOT = REPOSITORY_ROOT / "data" / "projects"
 PROJECTS_ROOT = Path(os.environ.get("HGD_PROJECTS_ROOT", DEFAULT_PROJECTS_ROOT)).expanduser().resolve()
 ALLOWED_EVIDENCE_TYPES = {"computational", "experimental", "literature", "note"}
 
-app = FastAPI(
-    title="Human-Guided Protein Design API",
-    version="0.4.0-dev",
-)
+app = FastAPI(title="Human-Guided Protein Design API", version="0.4.0-dev")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,7 +49,6 @@ def _project_dir(slug: str) -> Path:
 
 
 def _safe_filename(filename: str | None) -> str:
-    """Return a conservative basename for a locally uploaded file."""
     raw = Path(filename or "evidence_file").name
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._")
     return safe or "evidence_file"
@@ -78,7 +74,6 @@ def _design_payload(project: DesignProject, design_id: str) -> dict[str, Any]:
     structures = archive.get_design_structures(design_id)
     evidence = archive.get_design_evidence(design_id)
     decisions = archive.get_design_decisions(design_id)
-
     return {
         **design.to_dict(),
         "label": archive.get_design_label(design_id),
@@ -89,10 +84,7 @@ def _design_payload(project: DesignProject, design_id: str) -> dict[str, Any]:
         "evidence_counts": archive.get_design_evidence_counts(design_id),
         "children": [
             _design_payload(project, child.id)
-            for child in sorted(
-                archive.get_children(design_id),
-                key=lambda item: item.created_at,
-            )
+            for child in sorted(archive.get_children(design_id), key=lambda item: item.created_at)
         ],
     }
 
@@ -127,7 +119,6 @@ def health() -> dict[str, str]:
 def list_projects() -> list[dict[str, Any]]:
     if not PROJECTS_ROOT.exists():
         return []
-
     projects: list[dict[str, Any]] = []
     for path in sorted(PROJECTS_ROOT.iterdir(), key=lambda item: item.name.lower()):
         archive_path = path / "design_archive.json"
@@ -159,27 +150,19 @@ def get_project(slug: str) -> dict[str, Any]:
 
 @app.get("/api/projects/{slug}/files/{relative_path:path}")
 def open_project_file(slug: str, relative_path: str) -> FileResponse:
-    """Serve one imported evidence file from the local project only.
-
-    The route is deliberately restricted to the project's ``evidence``
-    directory so the browser cannot request arbitrary files from the machine.
-    """
+    """Serve one imported evidence file, restricted to project/evidence."""
     project_path = _project_dir(slug)
     evidence_root = (project_path / "evidence").resolve()
     requested = Path(relative_path)
-
     if requested.is_absolute():
         raise HTTPException(status_code=400, detail="Invalid file path.")
-
     candidate = (project_path / requested).resolve()
     try:
         candidate.relative_to(evidence_root)
     except ValueError as error:
         raise HTTPException(status_code=403, detail="File is outside project evidence storage.") from error
-
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="Evidence file not found.")
-
     return FileResponse(candidate)
 
 
@@ -187,44 +170,33 @@ def open_project_file(slug: str, relative_path: str) -> FileResponse:
 def import_design_evidence(
     slug: str,
     design_id: str,
-    source_type: str = Form(...),
-    source_name: str = Form(...),
-    summary: str = Form(...),
+    source_type: str = Form("experimental"),
+    source_name: str = Form(""),
+    summary: str = Form(""),
     notes: str = Form(""),
     files: list[UploadFile] = File(...),
 ) -> dict[str, Any]:
-    """Import local files and attach them as evidence to one design.
-
-    Uploaded bytes never leave the local FastAPI process. They are copied into
-    the project's ``evidence`` directory and referenced by project-relative
-    paths in the canonical archive.
-    """
+    """Import local files and attach them as evidence to one design."""
     path = _project_dir(slug)
     project = DesignProject.load(name=path.name, root_dir=path)
-
     if design_id not in project.archive.designs:
         raise HTTPException(status_code=404, detail="Design not found.")
 
     source_type = source_type.strip().lower()
     if source_type not in ALLOWED_EVIDENCE_TYPES:
         raise HTTPException(status_code=400, detail="Invalid evidence type.")
-
-    source_name = source_name.strip()
-    summary = summary.strip()
-    if not source_name:
-        raise HTTPException(status_code=400, detail="Source name is required.")
-    if not summary:
-        raise HTTPException(status_code=400, detail="Summary is required.")
     if not files:
         raise HTTPException(status_code=400, detail="At least one file is required.")
 
     import_dir = project.evidence_dir / f"import_{uuid4().hex[:12]}"
     import_dir.mkdir(parents=True, exist_ok=False)
     stored_paths: list[str] = []
+    original_names: list[str] = []
 
     try:
         for uploaded in files:
             filename = _safe_filename(uploaded.filename)
+            original_names.append(filename)
             destination = _unique_path(import_dir, filename)
             with destination.open("wb") as handle:
                 shutil.copyfileobj(uploaded.file, handle)
@@ -236,10 +208,18 @@ def import_design_evidence(
         for uploaded in files:
             uploaded.file.close()
 
+    first_name = original_names[0] if original_names else "local evidence"
+    resolved_source_name = source_name.strip() or Path(first_name).stem or source_type.title()
+    resolved_summary = summary.strip() or (
+        f"Imported local file: {first_name}"
+        if len(original_names) == 1
+        else f"Imported {len(original_names)} local files."
+    )
+
     evidence = EvidenceEntry(
         source_type=source_type,
-        source_name=source_name,
-        summary=summary,
+        source_name=resolved_source_name,
+        summary=resolved_summary,
         notes=notes.strip() or None,
         design_id=design_id,
         file_paths=stored_paths,
