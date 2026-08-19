@@ -14,16 +14,21 @@ export type StructureModel = {
   mean_plddt?: number | null;
   ptm?: number | null;
   iptm?: number | null;
+  pae_path?: string | null;
   notes?: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 export type EvidenceEntry = {
   id: string;
   created_at: string;
-  source_type: string;
+  source_type: "computational" | "experimental" | "literature" | "note" | string;
   source_name: string;
   summary: string;
   notes?: string | null;
+  data?: Record<string, unknown>;
+  file_paths?: string[];
+  references?: string[];
 };
 
 export type Decision = {
@@ -48,6 +53,7 @@ export type DesignNode = {
   status: string;
   origin: string;
   hypothesis?: string | null;
+  metadata?: Record<string, unknown>;
   decision?: Decision | null;
   structures: StructureModel[];
   evidence: EvidenceEntry[];
