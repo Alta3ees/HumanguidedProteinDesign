@@ -43,13 +43,13 @@ export function NewProjectDialog({ open, onClose, onCreated }: {
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="modal-dialog" role="dialog" aria-modal="true" aria-label="Create project">
-        <div className="modal-header"><div><p className="eyebrow">Workspace action</p><h2>New project</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
+        <div className="modal-header"><div><p className="eyebrow">New research tree</p><h2>Create project</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
         <form className="action-form" onSubmit={submit}>
           <label>Project name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
           <label>Scientific objective<textarea value={objective} onChange={(e) => setObjective(e.target.value)} required /></label>
-          <div className="form-section-label">Optional starting design</div>
-          <label>Design name<input value={designName} onChange={(e) => setDesignName(e.target.value)} placeholder="Starting sequence" /></label>
-          <label>Protein sequence<textarea className="mono" value={sequence} onChange={(e) => setSequence(e.target.value)} placeholder="Leave blank for objective-only project" /></label>
+          <div className="form-section-label">Optional first design</div>
+          <label>Design name<input value={designName} onChange={(e) => setDesignName(e.target.value)} placeholder="Starting design" /></label>
+          <label>Protein sequence<textarea className="mono" value={sequence} onChange={(e) => setSequence(e.target.value)} placeholder="Leave blank for an objective-only project" /></label>
           <div className="form-section-label">Optional binder target</div>
           <label>Target name<input value={targetName} onChange={(e) => setTargetName(e.target.value)} /></label>
           <label>Target sequence<textarea className="mono" value={targetSequence} onChange={(e) => setTargetSequence(e.target.value)} /></label>
@@ -80,21 +80,17 @@ export function RegisterDesignDialog({ open, onClose, slug, designs, defaultPare
 
   useEffect(() => {
     if (!open) return;
-    const validDefault = defaultParentId && designs.some((design) => design.id === defaultParentId)
-      ? defaultParentId
-      : "";
+    const validDefault = defaultParentId && designs.some((design) => design.id === defaultParentId) ? defaultParentId : "";
     setParentId(validDefault);
     setMessage(null);
-  }, [open, slug, defaultParentId]);
+  }, [open, slug, defaultParentId, designs]);
 
   if (!open) return null;
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage(null);
     try {
-      const validParentId = parentId && designs.some((design) => design.id === parentId)
-        ? parentId
-        : null;
+      const validParentId = parentId && designs.some((design) => design.id === parentId) ? parentId : null;
       const payload = await responseJson(await fetch(`/api/projects/${encodeURIComponent(slug)}/designs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,23 +99,23 @@ export function RegisterDesignDialog({ open, onClose, slug, designs, defaultPare
       onUpdated(payload.project as ProjectDetail, payload.design_id as string);
       setName(""); setSequence(""); setHypothesis(""); setSourceTool(""); setParentId("");
       onClose();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not register design."); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not add design."); }
     finally { setBusy(false); }
   }
 
   return (
     <div className="modal-backdrop">
-      <section className="modal-dialog" role="dialog" aria-modal="true" aria-label="Register design">
-        <div className="modal-header"><div><p className="eyebrow">Workspace action</p><h2>Register design</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
+      <section className="modal-dialog" role="dialog" aria-modal="true" aria-label="Add design">
+        <div className="modal-header"><div><p className="eyebrow">Add node to current tree</p><h2>Add design</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
         <form className="action-form" onSubmit={submit}>
-          <p className="muted">Adds a new design node to <b>{slug}</b>.</p>
-          <div className="two-col-form"><label>Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label><label>Origin<select value={origin} onChange={(e) => setOrigin(e.target.value)}><option value="imported_design">Imported design</option><option value="sequence_design">Sequence design</option><option value="generated_backbone">Generated backbone</option><option value="de_novo">De novo</option><option value="point_mutation">Point mutation</option><option value="natural_sequence">Natural sequence</option></select></label></div>
-          <label>Parent<select value={parentId} onChange={(e) => setParentId(e.target.value)}><option value="">No parent</option>{designs.map((design) => <option key={design.id} value={design.id}>{design.lineage_label}</option>)}</select></label>
+          <p className="muted">Adds a design node to <b>{slug}</b>. Choose a parent to create a branch, or “No parent” for another root design.</p>
+          <div className="two-col-form"><label>Design name<input value={name} onChange={(e) => setName(e.target.value)} required /></label><label>How was it made?<select value={origin} onChange={(e) => setOrigin(e.target.value)}><option value="imported_design">Imported</option><option value="sequence_design">Sequence design</option><option value="generated_backbone">Generated backbone</option><option value="de_novo">De novo</option><option value="point_mutation">Point mutation</option><option value="natural_sequence">Natural sequence</option></select></label></div>
+          <label>Parent design<select value={parentId} onChange={(e) => setParentId(e.target.value)}><option value="">No parent</option>{designs.map((design) => <option key={design.id} value={design.id}>{design.lineage_label}</option>)}</select></label>
           <label>Sequence <span className="optional-label">optional</span><textarea className="mono" value={sequence} onChange={(e) => setSequence(e.target.value)} /></label>
-          <label>Hypothesis <span className="optional-label">optional</span><textarea value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} /></label>
-          <label>Generator / source tool <span className="optional-label">optional</span><input value={sourceTool} onChange={(e) => setSourceTool(e.target.value)} placeholder="RFdiffusion, ProteinMPNN, imported..." /></label>
+          <label>Design hypothesis <span className="optional-label">optional</span><textarea value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} /></label>
+          <label>Source / design tool <span className="optional-label">optional</span><input value={sourceTool} onChange={(e) => setSourceTool(e.target.value)} placeholder="RFdiffusion, ProteinMPNN, imported..." /></label>
           {message && <p className="form-error">{message}</p>}
-          <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Registering…" : "Register design"}</button></div>
+          <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Adding…" : "Add design"}</button></div>
         </form>
       </section>
     </div>
@@ -158,21 +154,21 @@ export function AttachStructureDialog({ open, onClose, slug, design, onUpdated }
       onUpdated(payload.project as ProjectDetail); setFile(null); setMethod(""); setPlddt(""); setPtm(""); setIptm(""); setNotes("");
       if (fileRef.current) fileRef.current.value = "";
       onClose();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not attach structure."); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not add structure."); }
     finally { setBusy(false); }
   }
 
   return (
     <div className="modal-backdrop">
-      <section className="modal-dialog" role="dialog" aria-modal="true" aria-label="Attach structure">
-        <div className="modal-header"><div><p className="eyebrow">{design.label}</p><h2>Attach structure</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
+      <section className="modal-dialog" role="dialog" aria-modal="true" aria-label="Add structure">
+        <div className="modal-header"><div><p className="eyebrow">{design.label}</p><h2>Add structure</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
         <form className="action-form" onSubmit={submit}>
-          <input ref={fileRef} type="file" accept=".pdb,.cif,.mmcif" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          <div className="two-col-form"><label>Source<select value={source} onChange={(e) => setSource(e.target.value)}><option value="experimental">Experimental</option><option value="alphafold">AlphaFold</option><option value="colabfold">ColabFold</option><option value="rfdiffusion">RFdiffusion</option><option value="rosetta">Rosetta</option><option value="user">User</option><option value="other">Other</option></select></label><label>Method / model<input value={method} onChange={(e) => setMethod(e.target.value)} /></label></div>
+          <input ref={fileRef} type="file" accept=".pdb,.cif,.mmcif,.ent,.pqr" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <div className="two-col-form"><label>Structure source<select value={source} onChange={(e) => setSource(e.target.value)}><option value="experimental">Experimental</option><option value="alphafold">AlphaFold</option><option value="colabfold">ColabFold</option><option value="rfdiffusion">RFdiffusion</option><option value="rosetta">Rosetta</option><option value="user">User / local file</option><option value="other">Other</option></select></label><label>Method / model<input value={method} onChange={(e) => setMethod(e.target.value)} /></label></div>
           <div className="three-col-form"><label>Mean pLDDT<input type="number" min="0" max="100" step="0.1" value={plddt} onChange={(e) => setPlddt(e.target.value)} /></label><label>pTM<input type="number" min="0" max="1" step="0.01" value={ptm} onChange={(e) => setPtm(e.target.value)} /></label><label>ipTM<input type="number" min="0" max="1" step="0.01" value={iptm} onChange={(e) => setIptm(e.target.value)} /></label></div>
           <label>Notes<textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
           {message && <p className="form-error">{message}</p>}
-          <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || !file}>{busy ? "Attaching…" : "Attach structure"}</button></div>
+          <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || !file}>{busy ? "Adding…" : "Add structure"}</button></div>
         </form>
       </section>
     </div>
@@ -209,26 +205,26 @@ export function SequenceEditor({ slug, design, onUpdated }: {
       }));
       onUpdated(payload.project as ProjectDetail, payload.design_id as string);
       setEditing(false);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save sequence design."); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save derived design."); }
     finally { setBusy(false); }
   }
 
   if (!editing) {
-    return <button className="secondary-button" onClick={() => { setSequence(design.sequence ?? ""); setEditing(true); }}>Edit sequence / create child</button>;
+    return <button className="secondary-button" onClick={() => { setSequence(design.sequence ?? ""); setEditing(true); }}>Edit sequence → new child</button>;
   }
 
   return (
     <div className="sequence-editor">
-      <div className="sequence-editor-header"><div><p className="eyebrow">Provenance-safe editor</p><h3>Create derived sequence</h3></div><button className="icon-button" onClick={() => setEditing(false)}>×</button></div>
-      <p className="muted">The selected historical node will not be overwritten. Saving creates a child design.</p>
+      <div className="sequence-editor-header"><div><p className="eyebrow">Preserve design history</p><h3>Edit sequence → new child</h3></div><button className="icon-button" onClick={() => setEditing(false)}>×</button></div>
+      <p className="muted">The selected design stays unchanged. Saving this sequence creates a new child node in the lineage.</p>
       <textarea className="sequence-textarea mono" value={sequence} onChange={(e) => setSequence(e.target.value)} spellCheck={false} />
       <div className="sequence-preview" aria-label="Sequence change preview">
         {normalizedPreview.split("").map((aa, index) => <span key={index} className={changed.has(index) ? "changed-residue" : ""} title={changed.has(index) ? `Position ${index + 1}: ${design.sequence?.[index] ?? "∅"} → ${aa}` : `Position ${index + 1}`}>{aa}</span>)}
       </div>
       <div className="sequence-change-summary">{changed.size} changed position{changed.size === 1 ? "" : "s"}{design.sequence && normalizedPreview.length !== design.sequence.length ? ` · length ${design.sequence.length} → ${normalizedPreview.length}` : ""}</div>
-      <div className="two-col-form"><label>New design name<input value={name} onChange={(e) => setName(e.target.value)} /></label><label>Hypothesis<input value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} placeholder="What is this sequence meant to test?" /></label></div>
+      <div className="two-col-form"><label>New design name<input value={name} onChange={(e) => setName(e.target.value)} /></label><label>Why make this change?<input value={hypothesis} onChange={(e) => setHypothesis(e.target.value)} placeholder="Design hypothesis" /></label></div>
       {message && <p className="form-error">{message}</p>}
-      <div className="modal-actions"><button className="secondary-button" onClick={() => setEditing(false)}>Cancel</button><button className="primary-button" onClick={save} disabled={busy || changed.size === 0}>{busy ? "Saving…" : "Save as derived design"}</button></div>
+      <div className="modal-actions"><button className="secondary-button" onClick={() => setEditing(false)}>Cancel</button><button className="primary-button" onClick={save} disabled={busy || changed.size === 0}>{busy ? "Saving…" : "Create child design"}</button></div>
     </div>
   );
 }
