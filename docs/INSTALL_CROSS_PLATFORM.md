@@ -1,25 +1,52 @@
 # HGD local installation — Linux, macOS, Windows
 
-Human-Guided Protein Design v0.4 is designed as a **local-first** research workspace. Project sequences, structures, experimental files, notes, and evidence remain on the scientist's machine.
+Human-Guided Protein Design v0.4 is a **local-first** research workspace. Project sequences, structures, experimental files, notes, and evidence remain on the scientist's machine.
 
-## 1. Create the core environment
+PyRosetta is a **core HGD dependency** because Rosetta mutation/evaluation is part of the main scientific workflow.
 
-The same core environment file is used on Linux, macOS, and Windows:
+## 1. Supported platforms
+
+Full HGD support targets:
+
+- **Linux** — native
+- **macOS** — native
+- **Windows** — through **WSL2**
+
+The Windows choice is deliberate: current PyRosetta distribution supports Windows through the Windows Linux layer rather than a native Windows Conda package. Running the full project inside WSL2 keeps the same Python/PyRosetta workflow used on Linux while still allowing the browser UI to be opened from Windows.
+
+## 2. Create the HGD environment
+
+From the repository root:
 
 ```bash
 conda env create -f environment.yml
 conda activate human-guided-protein-design
 ```
 
-For an existing development environment:
+The environment installs:
+
+- Python 3.11
+- PyRosetta
+- Node.js 20+
+- HGD itself
+- FastAPI / Uvicorn / web dependencies
+- pytest / development test tooling
+
+Verify the scientific evaluator immediately:
 
 ```bash
-python -m pip install -e ".[web]"
+python -c "import pyrosetta; print(pyrosetta.__version__)"
 ```
 
-## 2. PyMOL is optional and not edition-locked
+Then verify the project:
 
-HGD does **not** require a specific PyMOL edition.
+```bash
+python -m pytest -q
+```
+
+## 3. PyMOL is external and edition-independent
+
+HGD does **not** force a specific PyMOL edition.
 
 If `pymol` is already available, HGD uses it. This may be:
 
@@ -27,7 +54,7 @@ If `pymol` is already available, HGD uses it. This may be:
 - open-source PyMOL;
 - another local PyMOL installation exposed on `PATH`.
 
-If PyMOL is installed somewhere unusual, point HGD to it before starting the workspace:
+If PyMOL is installed somewhere unusual, point HGD to it before starting the workspace.
 
 ### Linux / macOS
 
@@ -36,12 +63,9 @@ export HGD_PYMOL="/absolute/path/to/pymol"
 hgd
 ```
 
-### Windows PowerShell
+### Windows / WSL2
 
-```powershell
-$env:HGD_PYMOL = "C:\Path\To\PyMOL.exe"
-hgd
-```
+Run HGD inside WSL2. If PyMOL is installed inside the WSL environment and exposed on `PATH`, HGD uses it normally. External-viewer behavior can be configured separately as needed for a tester's Windows setup.
 
 If no PyMOL is installed and the open-source build is desired:
 
@@ -51,9 +75,9 @@ conda install -c conda-forge pymol-open-source
 
 Licensed users may instead install/use the official Schrödinger distribution. HGD only launches the executable; it does not manage or inspect the PyMOL license.
 
-## 3. Start HGD
+## 4. Start HGD
 
-After installing the package with the web extra, use the same command on all three platforms:
+After activating the environment:
 
 ```bash
 hgd
@@ -81,7 +105,7 @@ http://localhost:5173
 
 The production goal is for a built frontend to be served directly by HGD so normal scientists do not need to run npm during everyday use.
 
-## 4. Platform notes
+## 5. Platform notes
 
 ### Linux
 
@@ -99,19 +123,9 @@ HGD checks `PATH` first and also recognizes the standard application bundle exec
 
 ### Windows
 
-HGD checks `PATH` and common PyMOL installation locations. If an installer did not expose PyMOL on `PATH`, set `HGD_PYMOL` to `PyMOL.exe` / the local PyMOL executable.
+For the **full** HGD workflow, install and run the project in WSL2. This is the supported route for PyRosetta-backed HGD on Windows.
 
-## 5. PyRosetta
-
-The archive, frontend, project management, evidence import, structure registration, and local PyMOL integration do not require PyRosetta.
-
-PyRosetta-dependent mutation/evaluation workflows require a PyRosetta build compatible with the scientist's operating system and Python environment. PyRosetta remains a separate installation because its distribution mechanism is not a normal conda-forge/PyPI dependency.
-
-Verify it independently with:
-
-```bash
-python -c "import pyrosetta; print(pyrosetta.__version__)"
-```
+The browser UI can still be opened from the Windows browser through localhost. Native-Windows-only testing may be useful for the structure-independent web/archive layer, but it is not considered the complete HGD scientific installation.
 
 ## 6. Local-data guarantee
 
