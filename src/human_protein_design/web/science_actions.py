@@ -51,6 +51,7 @@ def _pyrosetta_tools():
         from human_protein_design.mutation import get_spatial_neighbors
         from human_protein_design.scan import scan_position
         from human_protein_design.scoring import (
+            get_score_terms,
             get_standard_score_function,
             initialize_pyrosetta,
         )
@@ -63,6 +64,7 @@ def _pyrosetta_tools():
         pyrosetta,
         get_spatial_neighbors,
         scan_position,
+        get_score_terms,
         get_standard_score_function,
         initialize_pyrosetta,
         DesignSession,
@@ -74,6 +76,7 @@ def _load_pose(project: DesignProject, design_id: str):
         pyrosetta,
         _get_spatial_neighbors,
         _scan_position,
+        _get_score_terms,
         _get_standard_score_function,
         initialize_pyrosetta,
         _DesignSession,
@@ -85,6 +88,42 @@ def _load_pose(project: DesignProject, design_id: str):
     except Exception as error:  # PyRosetta raises several wrapped C++ exception types.
         raise ValueError(f"PyRosetta could not load {structure_path.name}: {error}") from error
     return pose, structure_path
+
+
+def score_current_structure(
+    project: DesignProject,
+    *,
+    design_id: str,
+) -> EvidenceEntry:
+    """Score the current design structure without creating a mutation."""
+    (
+        _pyrosetta,
+        _get_spatial_neighbors,
+        _scan_position,
+        get_score_terms,
+        get_standard_score_function,
+        _initialize_pyrosetta,
+        _DesignSession,
+    ) = _pyrosetta_tools()
+    pose, structure_path = _load_pose(project, design_id)
+    scores = get_score_terms(pose, get_standard_score_function())
+    evidence = EvidenceEntry(
+        source_type="computational",
+        source_name="PyRosetta structure score",
+        summary=f"Rosetta full-atom score for {structure_path.name}.",
+        design_id=design_id,
+        data={
+            "analysis_type": "structure_score",
+            "structure_file": str(structure_path.name),
+            "residue_count": pose.total_residue(),
+            "sequence": pose.sequence(),
+            "total_score": scores["total_score"],
+            "score_terms": scores,
+        },
+    )
+    project.archive.add_evidence(evidence)
+    project.save()
+    return evidence
 
 
 def run_position_scan(
@@ -99,6 +138,7 @@ def run_position_scan(
         _pyrosetta,
         get_spatial_neighbors,
         scan_position,
+        _get_score_terms,
         get_standard_score_function,
         _initialize_pyrosetta,
         _DesignSession,
@@ -182,6 +222,7 @@ def evaluate_point_mutation(
         _pyrosetta,
         _get_spatial_neighbors,
         _scan_position,
+        _get_score_terms,
         get_standard_score_function,
         _initialize_pyrosetta,
         DesignSession,
@@ -213,7 +254,13 @@ def evaluate_point_mutation(
     if candidate_id is None:
         raise RuntimeError("PyRosetta evaluation did not produce a candidate design.")
 
+    parent = session.archive.get_design(design_id)
     candidate = session.archive.get_design(candidate_id)
+    candidate.origin = "point_mutation"
+    candidate.objective_id = parent.objective_id
+    candidate.target_id = parent.target_id
+    candidate.hypothesis = hypothesis.strip() or None
+
     # Promote the generated PDB from the legacy design field to a first-class
     # StructureModel so the browser/PyMOL workflow sees it immediately.
     if candidate.structure_path:
