@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from human_protein_design.archive import DesignProject, EvidenceEntry
 
@@ -154,6 +155,32 @@ def get_project(slug: str) -> dict[str, Any]:
     path = _project_dir(slug)
     project = DesignProject.load(name=path.name, root_dir=path)
     return _project_payload(project, slug)
+
+
+@app.get("/api/projects/{slug}/files/{relative_path:path}")
+def open_project_file(slug: str, relative_path: str) -> FileResponse:
+    """Serve one imported evidence file from the local project only.
+
+    The route is deliberately restricted to the project's ``evidence``
+    directory so the browser cannot request arbitrary files from the machine.
+    """
+    project_path = _project_dir(slug)
+    evidence_root = (project_path / "evidence").resolve()
+    requested = Path(relative_path)
+
+    if requested.is_absolute():
+        raise HTTPException(status_code=400, detail="Invalid file path.")
+
+    candidate = (project_path / requested).resolve()
+    try:
+        candidate.relative_to(evidence_root)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail="File is outside project evidence storage.") from error
+
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Evidence file not found.")
+
+    return FileResponse(candidate)
 
 
 @app.post("/api/projects/{slug}/designs/{design_id}/evidence")
