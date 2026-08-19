@@ -1,5 +1,15 @@
+.canvas {
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas > .project-header { order: 10; }
+.canvas > .objective-card { order: 20; }
+.canvas > .tree-panel { order: 30; }
+.canvas > .comparison-card { order: 40; }
+
 .comparison-card {
-  margin: 16px 0;
+  margin: 16px 0 0;
   padding: 18px;
   border: 1px solid var(--border, rgba(120, 150, 190, 0.28));
   border-radius: 16px;
