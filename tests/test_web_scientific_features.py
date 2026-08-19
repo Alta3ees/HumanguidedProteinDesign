@@ -1,9 +1,10 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from human_protein_design.archive import Decision, Design, DesignProject, EvidenceEntry, ProjectObjective
-from human_protein_design.web import api
+from human_protein_design.web import api, science_actions
 from human_protein_design.web.file_preview import preview_file
 
 
@@ -20,6 +21,37 @@ def make_project(projects_root):
     project.archive.add_design(design)
     project.save()
     return project, design
+
+
+class DummyPose:
+    def __init__(self, sequence: str):
+        self._sequence = sequence
+
+    def sequence(self):
+        return self._sequence
+
+    def total_residue(self):
+        return len(self._sequence)
+
+
+def test_structure_sequence_status_explains_length_mismatch(tmp_path):
+    project, design = make_project(tmp_path / "projects")
+    status = science_actions._structure_sequence_status(project, design.id, DummyPose("ACDEFGHIK"))
+    assert status["design_sequence_length"] == 6
+    assert status["structure_sequence_length"] == 9
+    assert status["sequence_match"] is False
+    assert "design has 6 residues" in str(status["sequence_warning"])
+    assert "structure contains 9" in str(status["sequence_warning"])
+
+    with pytest.raises(ValueError, match="Design/structure mismatch"):
+        science_actions._require_mutation_compatible_structure(project, design.id, DummyPose("ACDEFGHIK"))
+
+
+def test_structure_sequence_status_accepts_exact_match(tmp_path):
+    project, design = make_project(tmp_path / "projects")
+    status = science_actions._structure_sequence_status(project, design.id, DummyPose("ACDEFG"))
+    assert status["sequence_match"] is True
+    assert status["sequence_warning"] is None
 
 
 def test_common_scientific_file_previews(tmp_path):
