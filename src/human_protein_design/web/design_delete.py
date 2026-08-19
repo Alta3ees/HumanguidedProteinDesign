@@ -88,21 +88,37 @@ def delete_leaf_design(project: DesignProject, design_id: str) -> dict[str, Any]
         deleted_files.extend(delete_evidence(project, evidence_id))
 
     # Decisions involving the deleted leaf can no longer remain valid archive
-    # references. Preserve any evidence owned elsewhere by detaching the removed
-    # decision instead of deleting that other evidence record.
+    # references. Evidence that has another surviving owner is detached from the
+    # deleted decision; decision-only evidence is deleted so we never leave an
+    # evidence record with no scientific owner at all.
     decision_ids = [
         decision.id
         for decision in project.archive.decisions.values()
         if decision.candidate_design_id == design_id or decision.parent_design_id == design_id
     ]
     for decision_id in decision_ids:
-        for evidence in project.archive.evidence.values():
+        decision_only_evidence_ids: list[str] = []
+        for evidence in list(project.archive.evidence.values()):
             if evidence.decision_id != decision_id:
+                continue
+            has_other_owner = any(
+                (
+                    evidence.design_id,
+                    evidence.structure_id,
+                    evidence.target_id,
+                )
+            )
+            if not has_other_owner:
+                decision_only_evidence_ids.append(evidence.id)
                 continue
             evidence.decision_id = None
             evidence.data = dict(evidence.data)
             evidence.data["decision_removed"] = True
             evidence.data["removed_decision_id"] = decision_id
+
+        for evidence_id in decision_only_evidence_ids:
+            deleted_files.extend(delete_evidence(project, evidence_id))
+
         del project.archive.decisions[decision_id]
 
     del project.archive.designs[design_id]
