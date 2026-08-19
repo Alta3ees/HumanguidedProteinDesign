@@ -212,6 +212,11 @@ export default function ScientificWorkspace() {
 
   useEffect(() => { fetch("/api/projects").then((r) => { if (!r.ok) throw new Error("Could not load projects."); return r.json(); }).then((data: ProjectListItem[]) => { setProjects(data); if (data.length) setSelectedSlug(data[0].slug); }).catch((e: Error) => setError(e.message)).finally(() => setLoading(false)); }, []);
   useEffect(() => { if (!selectedSlug) { setProject(null); return; } setLoading(true); setError(null); setDetailOpen(false); fetch(`/api/projects/${encodeURIComponent(selectedSlug)}`).then((r) => { if (!r.ok) throw new Error("Could not load project archive."); return r.json(); }).then((data: ProjectDetail) => { setProject(data); setSelectedDesignId(firstDesign(data.design_tree)?.id ?? null); }).catch((e: Error) => setError(e.message)).finally(() => setLoading(false)); }, [selectedSlug]);
+  useEffect(() => {
+    const handleDesignDeleted = () => setDetailOpen(false);
+    window.addEventListener("hgd:design-deleted", handleDesignDeleted);
+    return () => window.removeEventListener("hgd:design-deleted", handleDesignDeleted);
+  }, []);
 
   const selectedDesign = useMemo(() => findDesign(project?.design_tree ?? [], selectedDesignId), [project, selectedDesignId]);
   const allDesigns = useMemo(() => flattenDesigns(project?.design_tree ?? []), [project]);
