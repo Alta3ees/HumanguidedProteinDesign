@@ -39,6 +39,11 @@ function localFileUrl(slug: string, path: string) {
   return `/api/projects/${encodeURIComponent(slug)}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+function scoreCell(row: ScanRow, term: string) {
+  const value = row[term];
+  return typeof value === "number" ? value.toFixed(3) : "—";
+}
+
 export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
   slug: string;
   design: DesignNode;
@@ -173,7 +178,7 @@ export function PyRosettaWorkbench({ slug, design, onUpdated, onSelectNew }: {
         <p className="muted">Runs all 19 possible substitutions at one position using the same local PyRosetta preparation protocol, ranks them by ΔScore, and archives the result as computational evidence.</p>
         <div className="two-col-form"><label>Position<input type="number" min="1" max={maxPosition} value={position} onChange={(e) => setPosition(e.target.value)} required /></label><label>Radius (Å)<input type="number" min="1" step="0.5" value={radius} onChange={(e) => setRadius(e.target.value)} /></label></div>
         <button className="secondary-button" disabled={!hasStructure || scanBusy}>{scanBusy ? "Scanning 19 substitutions…" : "Scan all substitutions"}</button>
-        {scanRows.length > 0 && <div className="scan-results"><div className="scan-result-header"><b>{scanRows.length} substitutions ranked</b>{scanPath && <a className="mono" href={localFileUrl(slug, scanPath)} target="_blank" rel="noreferrer">CSV ↗</a>}</div><div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Rank</th><th>Mutation</th><th>Total score</th><th>ΔScore</th><th /></tr></thead><tbody>{scanRows.map((row, index) => <tr key={row.mutation}><td>{index + 1}</td><td className="mono">{row.mutation}</td><td>{Number(row.total_score).toFixed(3)}</td><td className={Number(row.delta_score) <= 0 ? "score-good" : "score-bad"}>{Number(row.delta_score) >= 0 ? "+" : ""}{Number(row.delta_score).toFixed(3)}</td><td><button type="button" className="mini-button" onClick={() => useScanCandidate(row)}>Evaluate</button></td></tr>)}</tbody></table></div></div>}
+        {scanRows.length > 0 && <div className="scan-results"><div className="scan-result-header"><b>{scanRows.length} substitutions ranked by ΔScore</b>{scanPath && <a className="mono" href={localFileUrl(slug, scanPath)} target="_blank" rel="noreferrer">Complete CSV ↗</a>}</div><div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Rank</th><th>Mutation</th><th>Total</th><th>ΔScore</th><th>fa_atr</th><th>fa_rep</th><th>fa_sol</th><th>fa_elec</th><th /></tr></thead><tbody>{scanRows.map((row, index) => <tr key={row.mutation}><td>{index + 1}</td><td className="mono">{row.mutation}</td><td>{Number(row.total_score).toFixed(3)}</td><td className={Number(row.delta_score) <= 0 ? "score-good" : "score-bad"}>{Number(row.delta_score) >= 0 ? "+" : ""}{Number(row.delta_score).toFixed(3)}</td><td>{scoreCell(row, "fa_atr")}</td><td>{scoreCell(row, "fa_rep")}</td><td>{scoreCell(row, "fa_sol")}</td><td>{scoreCell(row, "fa_elec")}</td><td><button type="button" className="mini-button" onClick={() => useScanCandidate(row)}>Evaluate</button></td></tr>)}</tbody></table></div></div>}
       </form>
     </div>
     {message && <p className="form-message">{message}</p>}
