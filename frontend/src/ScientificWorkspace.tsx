@@ -54,23 +54,41 @@ function mutationCount(reference?: string | null, variant?: string | null): numb
 
 const FIRST_MUTATION_OFFSET = 120;
 const MUTATION_RADIAL_SCALE = 180;
+const MIN_OCCUPIED_SHELL_GAP = 190;
 
-function radialDistance(totalMutations: number): number {
+function rawRadialDistance(totalMutations: number): number {
   if (totalMutations <= 0) return 0;
   return FIRST_MUTATION_OFFSET + MUTATION_RADIAL_SCALE * Math.sqrt(totalMutations);
 }
 
-function maxTotalMutations(node: DesignNode, rootSequence: string | null): number {
-  const here = rootSequence == null ? 0 : mutationCount(rootSequence, node.sequence);
-  return Math.max(here, ...node.children.map((child) => maxTotalMutations(child, rootSequence)));
+function collectMutationCounts(node: DesignNode, rootSequence: string | null, counts: Set<number>) {
+  const total = rootSequence == null ? 0 : mutationCount(rootSequence, node.sequence);
+  counts.add(total);
+  node.children.forEach((child) => collectMutationCounts(child, rootSequence, counts));
+}
+
+function occupiedShellRadii(roots: DesignNode[]): Map<number, number> {
+  const counts = new Set<number>([0]);
+  for (const root of roots) collectMutationCounts(root, root.sequence ?? null, counts);
+  const ordered = Array.from(counts).sort((a, b) => a - b);
+  const radii = new Map<number, number>([[0, 0]]);
+  let previousRadius = 0;
+  for (const total of ordered) {
+    if (total === 0) continue;
+    const radius = Math.max(rawRadialDistance(total), previousRadius + MIN_OCCUPIED_SHELL_GAP);
+    radii.set(total, radius);
+    previousRadius = radius;
+  }
+  return radii;
 }
 
 function layoutRadial(roots: DesignNode[]) {
   const positioned: PositionedNode[] = [];
   const edges: Edge[] = [];
+  const shellRadii = occupiedShellRadii(roots);
   const rootOffset = roots.length > 1 ? FIRST_MUTATION_OFFSET : 0;
-  const farthestTotal = roots.length === 0 ? 0 : Math.max(...roots.map((root) => maxTotalMutations(root, root.sequence ?? null)));
-  const radius = Math.max(420, rootOffset + radialDistance(farthestTotal) + 260);
+  const farthestRadius = shellRadii.size === 0 ? 0 : Math.max(...shellRadii.values());
+  const radius = Math.max(420, rootOffset + farthestRadius + 260);
   const size = Math.max(960, radius * 2);
   const center = size / 2;
 
@@ -84,7 +102,7 @@ function layoutRadial(roots: DesignNode[]) {
   ): PositionedNode {
     const introducedMutations = parentSequence == null ? 0 : mutationCount(parentSequence, node.sequence);
     const totalMutations = rootSequence == null ? 0 : mutationCount(rootSequence, node.sequence);
-    const nodeRadius = rootOffset + radialDistance(totalMutations);
+    const nodeRadius = rootOffset + (shellRadii.get(totalMutations) ?? rawRadialDistance(totalMutations));
     const angle = (startAngle + endAngle) / 2;
     const current = {
       node,
