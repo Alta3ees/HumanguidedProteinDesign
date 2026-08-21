@@ -53,10 +53,9 @@ function mutationCount(reference?: string | null, variant?: string | null): numb
 }
 
 const MUTATION_RADIAL_SCALE = 220;
+const LINEAGE_TURN_RADIANS = 0.4;
 
 function radialDistance(totalMutations: number): number {
-  // Preserve ordering by total sequence distance from the project root while
-  // compressing larger mutation counts so the design map stays readable.
   return MUTATION_RADIAL_SCALE * Math.sqrt(Math.max(0, totalMutations));
 }
 
@@ -70,7 +69,7 @@ function layoutRadial(roots: DesignNode[]) {
   const edges: Edge[] = [];
   const rootOffset = roots.length > 1 ? MUTATION_RADIAL_SCALE : 0;
   const farthestTotal = roots.length === 0 ? 0 : Math.max(...roots.map((root) => maxTotalMutations(root, root.sequence ?? null)));
-  const radius = Math.max(420, rootOffset + radialDistance(farthestTotal) + 220);
+  const radius = Math.max(420, rootOffset + radialDistance(farthestTotal) + 260);
   const size = Math.max(960, radius * 2);
   const center = size / 2;
 
@@ -85,7 +84,8 @@ function layoutRadial(roots: DesignNode[]) {
     const introducedMutations = parentSequence == null ? 0 : mutationCount(parentSequence, node.sequence);
     const totalMutations = rootSequence == null ? 0 : mutationCount(rootSequence, node.sequence);
     const nodeRadius = rootOffset + radialDistance(totalMutations);
-    const angle = (startAngle + endAngle) / 2;
+    const sectorAngle = (startAngle + endAngle) / 2;
+    const angle = sectorAngle + depth * LINEAGE_TURN_RADIANS;
     const current = {
       node,
       x: center + Math.cos(angle) * nodeRadius,
@@ -308,7 +308,7 @@ export default function ScientificWorkspace() {
   return <main className="app-shell">
     <header className="topbar"><div><p className="eyebrow">Human-Guided Protein Design</p><h1>Research workspace</h1></div><div className="topbar-actions"><button className="primary-button compact-button" onClick={() => setNewProjectOpen(true)}>+ New project</button>{project && <button className="secondary-button" onClick={() => setRegisterOpen(true)}>+ Add design</button>}<span className="local-pill">Local only</span><span className="version">v0.5 dev</span></div></header>
     <div className="workspace"><aside className="sidebar"><div className="panel-title"><span>Projects</span><span className="count">{projects.length}</span></div>{projects.map((item) => <button key={item.slug} className={`project-button ${selectedSlug === item.slug ? "active" : ""}`} onClick={() => setSelectedSlug(item.slug)}><strong>{item.name}</strong><span>{item.design_count} designs · {item.structure_count} structures · {item.evidence_count} evidence</span></button>)}{!loading && projects.length === 0 && <p className="muted">No projects yet. Create one above.</p>}</aside>
-      <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2>{project.objectives.length > 0 && <p className="muted">{project.objectives[0].description}</p>}</div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div><ProjectExportTools slug={project.slug} /></div><div className="tree-panel"><div className="panel-title"><span>Design map</span><span className="muted">distance from WT reflects total sequence mutations</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={setSelectedDesignId} /></div><DesignComparison designs={allDesigns} selectedDesignId={selectedDesignId} /></>}</section>
+      <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2>{project.objectives.length > 0 && <p className="muted">{project.objectives[0].description}</p>}</div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div><ProjectExportTools slug={project.slug} /></div><div className="tree-panel"><div className="panel-title"><span>Design map</span><span className="muted">radial distance from WT reflects total sequence mutations</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={setSelectedDesignId} /></div><DesignComparison designs={allDesigns} selectedDesignId={selectedDesignId} /></>}</section>
       <aside className="inspector"><Inspector design={selectedDesign} slug={selectedSlug} onUpdated={handleUpdated} onSelectNew={setSelectedDesignId} onOpen={() => selectedDesign && setDetailOpen(true)} /></aside></div>
     {detailOpen && selectedDesign && selectedSlug && <DesignDetail design={selectedDesign} slug={selectedSlug} onClose={() => setDetailOpen(false)} onUpdated={handleUpdated} onSelectNew={(id) => setSelectedDesignId(id)} />}
     <NewProjectDialog open={newProjectOpen} onClose={() => setNewProjectOpen(false)} onCreated={handleCreated} />
