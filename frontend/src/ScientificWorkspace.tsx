@@ -9,6 +9,7 @@ import {
 } from "./WorkspaceActions";
 import StructureViewer from "./StructureViewer";
 import DesignComparison from "./DesignComparison";
+import DesignDeleteControl from "./DesignDeleteControl";
 import MultiMutationComposer from "./MultiMutationComposer";
 import { EvidenceFiles } from "./ScientificFilePreview";
 import { ProjectExportTools, PyRosettaWorkbench } from "./ScientificTools";
@@ -51,44 +52,44 @@ function mutationCount(reference?: string | null, variant?: string | null): numb
   return changes;
 }
 
-function edgeLength(mutations: number): number {
-  // Keep enough clearance for labels while making additional sequence changes
-  // visibly stretch the branch. One mutation is the smallest normal step.
-  return 95 + Math.max(1, mutations) * 55;
+function radialDistance(totalMutations: number): number {
+  // Make a one-mutation state visibly distinct from WT, then add a steady
+  // increment per additional sequence difference. Radius represents sequence
+  // distance from the root, not chronological depth.
+  if (totalMutations <= 0) return 0;
+  return 230 + (totalMutations - 1) * 90;
 }
 
-function maxBranchRadius(node: DesignNode, parentSequence: string | null, currentRadius: number): number {
-  const introduced = parentSequence == null ? 0 : mutationCount(parentSequence, node.sequence);
-  const here = currentRadius + (parentSequence == null ? 0 : edgeLength(introduced));
-  return Math.max(here, ...node.children.map((child) => maxBranchRadius(child, node.sequence ?? null, here)));
+function maxTotalMutations(node: DesignNode, rootSequence: string | null): number {
+  const here = rootSequence == null ? 0 : mutationCount(rootSequence, node.sequence);
+  return Math.max(here, ...node.children.map((child) => maxTotalMutations(child, rootSequence)));
 }
 
 function layoutRadial(roots: DesignNode[]) {
   const positioned: PositionedNode[] = [];
   const edges: Edge[] = [];
-  const rootOffset = roots.length > 1 ? 110 : 0;
-  const farthest = roots.length === 0 ? 0 : Math.max(...roots.map((root) => maxBranchRadius(root, null, rootOffset)));
-  const radius = Math.max(300, farthest + 170);
-  const size = Math.max(780, radius * 2);
+  const rootOffset = roots.length > 1 ? 120 : 0;
+  const farthestTotal = roots.length === 0 ? 0 : Math.max(...roots.map((root) => maxTotalMutations(root, root.sequence ?? null)));
+  const radius = Math.max(340, rootOffset + radialDistance(farthestTotal) + 210);
+  const size = Math.max(860, radius * 2);
   const center = size / 2;
 
   function place(
     node: DesignNode,
     parentSequence: string | null,
     rootSequence: string | null,
-    radialDistance: number,
     depth: number,
     startAngle: number,
     endAngle: number,
   ): PositionedNode {
     const introducedMutations = parentSequence == null ? 0 : mutationCount(parentSequence, node.sequence);
-    const nextRadius = radialDistance + (parentSequence == null ? 0 : edgeLength(introducedMutations));
     const totalMutations = rootSequence == null ? 0 : mutationCount(rootSequence, node.sequence);
+    const nodeRadius = rootOffset + radialDistance(totalMutations);
     const angle = (startAngle + endAngle) / 2;
     const current = {
       node,
-      x: center + Math.cos(angle) * nextRadius,
-      y: center + Math.sin(angle) * nextRadius,
+      x: center + Math.cos(angle) * nodeRadius,
+      y: center + Math.sin(angle) * nodeRadius,
       depth,
       introducedMutations,
       totalMutations,
@@ -104,7 +105,6 @@ function layoutRadial(roots: DesignNode[]) {
           child,
           node.sequence ?? null,
           rootSequence,
-          nextRadius,
           depth + 1,
           cursor,
           cursor + share,
@@ -117,13 +117,13 @@ function layoutRadial(roots: DesignNode[]) {
   }
 
   if (roots.length === 1) {
-    place(roots[0], null, roots[0].sequence ?? null, 0, 0, -Math.PI, Math.PI);
+    place(roots[0], null, roots[0].sequence ?? null, 0, -Math.PI, Math.PI);
   } else if (roots.length > 1) {
     const totalWeight = roots.reduce((sum, root) => sum + subtreeWeight(root), 0);
     let cursor = -Math.PI;
     for (const root of roots) {
       const share = 2 * Math.PI * (subtreeWeight(root) / totalWeight);
-      place(root, null, root.sequence ?? null, rootOffset, 0, cursor, cursor + share);
+      place(root, null, root.sequence ?? null, 0, cursor, cursor + share);
       cursor += share;
     }
   }
@@ -136,9 +136,9 @@ function Mindmap({ roots, selectedId, onSelect }: { roots: DesignNode[]; selecte
   return (
     <div className="mindmap-scroll"><div className="mindmap radial-map" style={{ width: layout.size, height: layout.size }}>
       <svg className="mindmap-edges" width={layout.size} height={layout.size} aria-hidden="true">
-        {layout.edges.map(({ from, to }) => <g key={`${from.node.id}-${to.node.id}`}>
+        {layout.edges.map(({ from, to, mutationCount: changes }) => <g key={`${from.node.id}-${to.node.id}`}>
           <path className="lineage-edge" d={`M ${from.x} ${from.y} L ${to.x} ${to.y}`} />
-          <text className="edge-mutation-label" x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 6}>+{to.introducedMutations}</text>
+          <text className="edge-mutation-label" x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 8}>{changes} change{changes === 1 ? "" : "s"}</text>
         </g>)}
       </svg>
       {layout.positioned.map(({ node, x, y, introducedMutations, totalMutations }) => {
@@ -222,7 +222,7 @@ function RosettaDeepDive({ entry }: { entry: EvidenceEntry }) {
   const radius = typeof context.radius_angstrom === "number" ? context.radius_angstrom : typeof prep?.radius_angstrom === "number" ? prep.radius_angstrom : 8;
   const terms = Array.from(new Set([...Object.keys(parentTerms), ...Object.keys(mutantTerms), ...Object.keys(deltaTerms)])).filter((term) => term !== "total_score");
   return <div className="deep-dive-grid">
-    <section className="detail-card wide-card"><div className="detail-card-header"><div><p className="eyebrow">PyRosetta</p><h3>Energetic evaluation</h3></div><span className="mono">{String(data.mutation ?? data.analysis_type ?? "evaluation")}</span></div><RosettaSummary entry={entry} />
+    <section className="detail-card wide-card"><div className="detail-card-header"><div><p className="eyebrow">PyRosetta</p><h3>Energetic evaluation</h3></div><span className="mono">{String(data.mutation ?? "mutation")}</span></div><RosettaSummary entry={entry} />
       {terms.length > 0 && <div className="energy-table-wrap"><table className="energy-table"><thead><tr><th>Term</th><th>Parent</th><th>Mutant</th><th>Δ</th></tr></thead><tbody>{terms.map((term) => { const p = parentTerms[term], m = mutantTerms[term], d = deltaTerms[term]; return <tr key={term}><td className="mono">{term}</td><td>{typeof p === "number" ? p.toFixed(3) : "—"}</td><td>{typeof m === "number" ? m.toFixed(3) : "—"}</td><td className={typeof d === "number" ? (d <= 0 ? "score-good" : "score-bad") : ""}>{typeof d === "number" ? `${d >= 0 ? "+" : ""}${d.toFixed(3)}` : "—"}</td></tr>; })}</tbody></table></div>}
     </section>
     <section className="detail-card"><div className="detail-card-header"><div><p className="eyebrow">Interpretation</p><h3>Energy-term changes</h3></div></div>{interpretations.length ? <div className="interpretation-list">{interpretations.map((item) => <div key={`${item.term}-${item.delta}`} className={`interpretation-item ${item.direction}`}><span>{item.direction === "improved" ? "↓" : "↑"}</span><div><b>{item.term} {item.delta >= 0 ? "+" : ""}{item.delta.toFixed(3)}</b><p>{item.message}</p></div></div>)}</div> : <p className="muted">No archived interpretation messages.</p>}</section>
@@ -230,7 +230,7 @@ function RosettaDeepDive({ entry }: { entry: EvidenceEntry }) {
   </div>;
 }
 
-function Inspector({ design, onOpen }: { design: DesignNode | null; onOpen: () => void }) {
+function Inspector({ design, slug, onUpdated, onSelectNew, onOpen }: { design: DesignNode | null; slug: string | null; onUpdated: (p: ProjectDetail) => void; onSelectNew: (id: string) => void; onOpen: () => void }) {
   if (!design) return <div className="empty-panel">Select a design to inspect it.</div>;
   const evidenceTotal = Object.values(design.evidence_counts).reduce((sum, count) => sum + count, 0);
   return <div className="inspector-content">
@@ -238,6 +238,7 @@ function Inspector({ design, onOpen }: { design: DesignNode | null; onOpen: () =
     <p className="lineage">{design.lineage_label}</p>
     <dl className="facts-grid"><div><dt>Decision</dt><dd>{design.decision?.outcome ?? "none"}</dd></div><div><dt>Structures</dt><dd>{design.structures.length}</dd></div><div><dt>Evidence</dt><dd>{evidenceTotal}</dd></div><div><dt>Sequence</dt><dd>{design.sequence ? `${design.sequence.length} aa` : "none"}</dd></div></dl>
     <button className="open-detail-button" onClick={onOpen}>Open full scientific record ↗</button>
+    {slug && <DesignDeleteControl slug={slug} design={design} onUpdated={onUpdated} onSelectNew={onSelectNew} variant="button" />}
   </div>;
 }
 
@@ -270,6 +271,7 @@ function DesignDetail({ design, slug, onClose, onUpdated, onSelectNew }: { desig
 
       <PyRosettaWorkbench slug={slug} design={design} onUpdated={onUpdated} onSelectNew={onSelectNew} />
       {computational.map((entry) => <RosettaDeepDive key={entry.id} entry={entry} />)}
+      <DesignDeleteControl slug={slug} design={design} onUpdated={onUpdated} onSelectNew={onSelectNew} variant="full" />
     </main><AttachStructureDialog open={structureDialog} onClose={() => setStructureDialog(false)} slug={slug} design={design} onUpdated={onUpdated} /></div>;
 }
 
@@ -306,8 +308,8 @@ export default function ScientificWorkspace() {
   return <main className="app-shell">
     <header className="topbar"><div><p className="eyebrow">Human-Guided Protein Design</p><h1>Research workspace</h1></div><div className="topbar-actions"><button className="primary-button compact-button" onClick={() => setNewProjectOpen(true)}>+ New project</button>{project && <button className="secondary-button" onClick={() => setRegisterOpen(true)}>+ Add design</button>}<span className="local-pill">Local only</span><span className="version">v0.5 dev</span></div></header>
     <div className="workspace"><aside className="sidebar"><div className="panel-title"><span>Projects</span><span className="count">{projects.length}</span></div>{projects.map((item) => <button key={item.slug} className={`project-button ${selectedSlug === item.slug ? "active" : ""}`} onClick={() => setSelectedSlug(item.slug)}><strong>{item.name}</strong><span>{item.design_count} designs · {item.structure_count} structures · {item.evidence_count} evidence</span></button>)}{!loading && projects.length === 0 && <p className="muted">No projects yet. Create one above.</p>}</aside>
-      <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2>{project.objectives.length > 0 && <p className="muted">{project.objectives[0].description}</p>}</div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div><ProjectExportTools slug={project.slug} /></div><div className="tree-panel"><div className="panel-title"><span>Design map</span><span className="muted">branch length reflects mutations introduced from the parent</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={setSelectedDesignId} /></div><DesignComparison designs={allDesigns} selectedDesignId={selectedDesignId} /></>}</section>
-      <aside className="inspector"><Inspector design={selectedDesign} onOpen={() => selectedDesign && setDetailOpen(true)} /></aside></div>
+      <section className="canvas">{error && <div className="error-banner">{error}</div>}{loading && !project && <div className="empty-panel">Loading workspace…</div>}{project && <><div className="project-header"><div><p className="eyebrow">Project</p><h2>{project.name}</h2>{project.objectives.length > 0 && <p className="muted">{project.objectives[0].description}</p>}</div><div className="project-counts"><span><b>{project.counts.designs}</b> designs</span><span><b>{project.counts.structures}</b> structures</span><span><b>{project.counts.evidence}</b> evidence</span></div><ProjectExportTools slug={project.slug} /></div><div className="tree-panel"><div className="panel-title"><span>Design map</span><span className="muted">distance from WT reflects total sequence mutations</span></div><Mindmap roots={project.design_tree} selectedId={selectedDesignId} onSelect={setSelectedDesignId} /></div><DesignComparison designs={allDesigns} selectedDesignId={selectedDesignId} /></>}</section>
+      <aside className="inspector"><Inspector design={selectedDesign} slug={selectedSlug} onUpdated={handleUpdated} onSelectNew={setSelectedDesignId} onOpen={() => selectedDesign && setDetailOpen(true)} /></aside></div>
     {detailOpen && selectedDesign && selectedSlug && <DesignDetail design={selectedDesign} slug={selectedSlug} onClose={() => setDetailOpen(false)} onUpdated={handleUpdated} onSelectNew={(id) => setSelectedDesignId(id)} />}
     <NewProjectDialog open={newProjectOpen} onClose={() => setNewProjectOpen(false)} onCreated={handleCreated} />
     {project && selectedSlug && <RegisterDesignDialog open={registerOpen} onClose={() => setRegisterOpen(false)} slug={selectedSlug} designs={allDesigns} defaultParentId={selectedDesignId} onUpdated={(updated, id) => { handleUpdated(updated); setSelectedDesignId(id); }} />}
