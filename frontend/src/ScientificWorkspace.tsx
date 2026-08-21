@@ -52,11 +52,12 @@ function mutationCount(reference?: string | null, variant?: string | null): numb
   return changes;
 }
 
-const MUTATION_RADIAL_SCALE = 220;
-const LINEAGE_TURN_RADIANS = 0.4;
+const FIRST_MUTATION_OFFSET = 120;
+const MUTATION_RADIAL_SCALE = 180;
 
 function radialDistance(totalMutations: number): number {
-  return MUTATION_RADIAL_SCALE * Math.sqrt(Math.max(0, totalMutations));
+  if (totalMutations <= 0) return 0;
+  return FIRST_MUTATION_OFFSET + MUTATION_RADIAL_SCALE * Math.sqrt(totalMutations);
 }
 
 function maxTotalMutations(node: DesignNode, rootSequence: string | null): number {
@@ -67,7 +68,7 @@ function maxTotalMutations(node: DesignNode, rootSequence: string | null): numbe
 function layoutRadial(roots: DesignNode[]) {
   const positioned: PositionedNode[] = [];
   const edges: Edge[] = [];
-  const rootOffset = roots.length > 1 ? MUTATION_RADIAL_SCALE : 0;
+  const rootOffset = roots.length > 1 ? FIRST_MUTATION_OFFSET : 0;
   const farthestTotal = roots.length === 0 ? 0 : Math.max(...roots.map((root) => maxTotalMutations(root, root.sequence ?? null)));
   const radius = Math.max(420, rootOffset + radialDistance(farthestTotal) + 260);
   const size = Math.max(960, radius * 2);
@@ -84,8 +85,7 @@ function layoutRadial(roots: DesignNode[]) {
     const introducedMutations = parentSequence == null ? 0 : mutationCount(parentSequence, node.sequence);
     const totalMutations = rootSequence == null ? 0 : mutationCount(rootSequence, node.sequence);
     const nodeRadius = rootOffset + radialDistance(totalMutations);
-    const sectorAngle = (startAngle + endAngle) / 2;
-    const angle = sectorAngle + depth * LINEAGE_TURN_RADIANS;
+    const angle = (startAngle + endAngle) / 2;
     const current = {
       node,
       x: center + Math.cos(angle) * nodeRadius,
@@ -138,7 +138,7 @@ function Mindmap({ roots, selectedId, onSelect }: { roots: DesignNode[]; selecte
       <svg className="mindmap-edges" width={layout.size} height={layout.size} aria-hidden="true">
         {layout.edges.map(({ from, to, mutationCount: changes }) => <g key={`${from.node.id}-${to.node.id}`}>
           <path className="lineage-edge" d={`M ${from.x} ${from.y} L ${to.x} ${to.y}`} />
-          <text className="edge-mutation-label" x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 8}>{changes} change{changes === 1 ? "" : "s"}</text>
+          <text className="edge-mutation-label" x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 10}>{changes}</text>
         </g>)}
       </svg>
       {layout.positioned.map(({ node, x, y, introducedMutations, totalMutations }) => {
