@@ -52,13 +52,12 @@ function mutationCount(reference?: string | null, variant?: string | null): numb
   return changes;
 }
 
-const MUTATION_RADIAL_UNIT = 240;
+const MUTATION_RADIAL_SCALE = 220;
 
 function radialDistance(totalMutations: number): number {
-  // Absolute sequence distance from the root. One mutation corresponds to one
-  // fixed radial unit; with 172 px nodes this leaves roughly three 22 px map
-  // dots of visible clearance between consecutive mutation shells.
-  return Math.max(0, totalMutations) * MUTATION_RADIAL_UNIT;
+  // Preserve ordering by total sequence distance from the project root while
+  // compressing larger mutation counts so the design map stays readable.
+  return MUTATION_RADIAL_SCALE * Math.sqrt(Math.max(0, totalMutations));
 }
 
 function maxTotalMutations(node: DesignNode, rootSequence: string | null): number {
@@ -69,9 +68,9 @@ function maxTotalMutations(node: DesignNode, rootSequence: string | null): numbe
 function layoutRadial(roots: DesignNode[]) {
   const positioned: PositionedNode[] = [];
   const edges: Edge[] = [];
-  const rootOffset = roots.length > 1 ? MUTATION_RADIAL_UNIT : 0;
+  const rootOffset = roots.length > 1 ? MUTATION_RADIAL_SCALE : 0;
   const farthestTotal = roots.length === 0 ? 0 : Math.max(...roots.map((root) => maxTotalMutations(root, root.sequence ?? null)));
-  const radius = Math.max(420, rootOffset + radialDistance(farthestTotal) + 240);
+  const radius = Math.max(420, rootOffset + radialDistance(farthestTotal) + 220);
   const size = Math.max(960, radius * 2);
   const center = size / 2;
 
