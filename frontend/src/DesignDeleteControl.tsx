@@ -14,13 +14,13 @@ export default function DesignDeleteControl({
   design,
   onUpdated,
   onSelectNew,
-  variant = "full",
+  variant = "hidden",
 }: {
   slug: string;
   design: DesignNode;
   onUpdated: (project: ProjectDetail) => void;
   onSelectNew: (id: string) => void;
-  variant?: "full" | "button";
+  variant?: "hidden" | "full" | "button";
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -62,6 +62,8 @@ export default function DesignDeleteControl({
       setBusy(false);
     }
   }
+
+  if (variant === "hidden") return null;
 
   return <>
     {variant === "button" ? (
