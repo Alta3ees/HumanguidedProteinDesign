@@ -13,6 +13,17 @@
   margin: 0 0 14px;
 }
 
+.inspector-delete-button {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* Give sequence-distance maps enough breathing room for the larger minimum
+   one-mutation radius. */
+.tree-panel .mindmap-scroll {
+  min-height: 610px;
+}
+
 /* Evidence attachment is now an explicit section inside the full record rather
    than a panel that visually spills outside its parent card. */
 .detail-page .import-section {
